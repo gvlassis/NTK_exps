@@ -27,10 +27,7 @@ STEP_TIMES_N = 1
 
 # Hyperparameters
 BATCH_SIZE = 25
-LR = 0.01
-MOMENTUM = 0.99
 
-# Stopping criteria 
 TRAIN_LOSS1 = 1e-1
 EPOCHS2 = 20
 TOTAL_BATCHES3_MIN = 5000
@@ -249,7 +246,7 @@ for N in N_VALUES:
                 nn.to(DEVICE)
 
                 # Set up the optimizer for the nn
-                optimizer = torch.optim.SGD(nn.parameters(), lr=LR, momentum=MOMENTUM)
+                optimizer = torch.optim.Adam(nn.parameters())
 
                 # Run the experiment
                 loss1_nn_values[j, exp], loss2_nn_values[j, exp], loss3_nn_values[j, exp], loss4_nn_values[j, exp] = train(nn, train_loader, optimizer, train_dataset, N, n_train, m, exp)
