@@ -58,8 +58,6 @@ class SphereDataset(torch.utils.data.Dataset):
         self.X = self.X/line_norms_T
   
         self.Y = torch.matmul(self.X,self.V)
-        self.Y = self.Y >= 0 
-        self.Y = self.Y.float()
 
     def __getitem__(self, i):
         return self.X[i], self.Y[i]
