@@ -16,9 +16,9 @@ import shutil
 
 # Hyperparameters 
 N_VALUES = [10, 50, 100]
-n_TRAIN_VALUES = [1000, 2500]
-n_TEST = 1000
-NUM_EXP = 1 # The number of experiments for each (N,n_train) tuple. In each experiment we use a new training dataset but the same testing dataset (V remains the same)
+n_TRAIN_VALUES = [1000, 2500, 5000, 7500, 10000]
+n_TEST = 10000
+NUM_EXP = 20 # The number of experiments for each (N,n_train) tuple. In each experiment we use a new training dataset but the same testing dataset (V remains the same)
 DEVICE_TYPE = 'cpu'
 DEVICE = torch.device(DEVICE_TYPE)
 loss_function = torch.nn.MSELoss()
@@ -38,7 +38,7 @@ BATCHES_PER_EPOCH = [ math.ceil(n_train/BATCH_SIZE) for n_train in n_TRAIN_VALUE
 LCM = numpy.lcm.reduce(BATCHES_PER_EPOCH)
 COEFF = math.ceil(TOTAL_BATCHES3_MIN/LCM) # Minimum s.t: LCM*COEFF>=TOTAL_BATCHES3_MIN
 TOTAL_BATCHES3 = LCM*COEFF 
-TRAIN_LOSS_DIF4 = 0.001
+TRAIN_LOSS_DIF4 = 0.0001
 EPOCH_DIF4 = 100
 
 class SphereDataset(torch.utils.data.Dataset):
