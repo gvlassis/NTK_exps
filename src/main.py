@@ -28,7 +28,7 @@ STEP_TIMES_N = 1
 # Hyperparameters
 BATCH_SIZE = 25
 
-TRAIN_LOSS1 = 1e-2
+TRAIN_LOSS1 = 1e-1
 EPOCHS2 = 20
 TOTAL_BATCHES3_MIN = 5000
 BATCHES_PER_EPOCH = [ math.ceil(n_train/BATCH_SIZE) for n_train in n_TRAIN_VALUES]
