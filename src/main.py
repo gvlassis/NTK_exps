@@ -7,6 +7,7 @@ import matplotlib.pyplot
 import os
 import math
 import shutil
+import random
 
 # Hyperparameters 
 N_VALUES = [10, 50, 100]
@@ -138,9 +139,10 @@ def train(distribution, test_dataset, n_train, m):
 
             train_loss_values[epoch+1] = get_loss(nn, train_dataset)
             test_loss_values[epoch+1] = get_loss(nn, test_dataset)
-
-        axs[0].plot(range(EPOCHS+1), train_loss_values, linestyle='-', marker='o', color='#039be5')
-        axs[1].plot(range(EPOCHS+1), test_loss_values, linestyle='-', marker='o', color='#039be5')
+        
+        color = "#{:02x}{:02x}{:02x}".format(random.randint(0,255), random.randint(0,255), random.randint(0,255)) # For legibility
+        axs[0].plot(range(EPOCHS+1), train_loss_values, linestyle='-', color=color)
+        axs[1].plot(range(EPOCHS+1), test_loss_values, linestyle='-', color=color)
 
     script_dir = os.path.dirname(__file__)
     fig_dir = os.path.join(script_dir, 'training_curves/N={0}/n_train={1}/'.format(N, n_train))
