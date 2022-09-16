@@ -10,8 +10,8 @@ import shutil
 import random
 
 # Hyperparameters 
-N_VALUES = [10, 50, 100]
-n_TRAIN_VALUES = [1000, 2500, 5000, 7500, 10000]
+N_VALUES = [10]
+n_TRAIN_VALUES = [10000]
 n_TEST = 10000
 NUM_EXP = 5 # The number of experiments for each (N,n_train) tuple. In each experiment we use a new training dataset but the same testing dataset (V remains the same)
 DEVICE_TYPE = 'cpu'
@@ -26,7 +26,7 @@ LR = 0.01
 MOMENTUM = 0.99
 
 # Stopping criteria 
-EPOCHS = 200
+EPOCHS = 2000
 
 class SphereDataset(torch.utils.data.Dataset):
     def __init__(self, distribution, n, V = None):
