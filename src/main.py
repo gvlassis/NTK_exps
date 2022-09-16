@@ -25,7 +25,7 @@ LR = 0.01
 MOMENTUM = 0.99
 
 # Stopping criteria 
-EPOCHS = 2000
+EPOCHS = 200
 
 class SphereDataset(torch.utils.data.Dataset):
     def __init__(self, distribution, n, V = None):
@@ -85,33 +85,35 @@ def get_loss(model, dataset):
     return loss.item()
 
 def train(distribution, test_dataset, n_train, m):
-    # Create training curves
-    fig, axs = matplotlib.pyplot.subplots(nrows=1, ncols=2, figsize=[10, 20], dpi=100, tight_layout=True)
-    fig.suptitle(f'N={distribution.event_shape}, n_train={n_train}, m={m}') # One graph for all the experiments 
-    
-    axs[1,0].set_xlabel('epoch')
-    axs[1,0].set_ylabel('train_loss')
-    axs[1,0].grid()
-    axs[1,0].set_yscale('log')
+    N = list(distribution.event_shape)[0]
 
-    axs[1,1].set_xlabel('epoch')
-    axs[1,1].set_ylabel('test_loss')
-    axs[1,1].grid()
-    axs[1,1].set_yscale('log')
+    # Create training curves
+    fig, axs = matplotlib.pyplot.subplots(ncols=2, figsize=[20, 10], dpi=100, tight_layout=True)
+    fig.suptitle(f'N={N}, n_train={n_train}, m={m}') # One graph for all the experiments 
+    
+    axs[0].set_xlabel('epoch')
+    axs[0].set_ylabel('train_loss')
+    axs[0].grid()
+    axs[0].set_yscale('log')
+
+    axs[1].set_xlabel('epoch')
+    axs[1].set_ylabel('test_loss')
+    axs[1].grid()
+    axs[1].set_yscale('log')
     
     for exp in range(NUM_EXP):
         train_dataset = SphereDataset(distribution, n_train, test_dataset.V)
         train_loader = torch.utils.data.DataLoader(dataset=train_dataset, batch_size=BATCH_SIZE, shuffle=True)
 
-        nn = NeuralNetwork(distribution.event_shape,m)
+        nn = NeuralNetwork(N,m)
         nn.to(DEVICE)
 
         # Set up the optimizer for the nn
         optimizer = torch.optim.SGD(nn.parameters(), lr=LR, momentum=MOMENTUM)
 
         # Run the experiment
-        was_in_training = model.training
-        model.train(True)
+        was_in_training = nn.training
+        nn.train(True)
 
         train_loss_values = numpy.empty(EPOCHS+1) # train_loss_values[i]=The train loss in the BEGINNING of the i-th epoch
         test_loss_values = numpy.empty(EPOCHS+1) # We calculate train/test loss at the beginning and after each epoch (hence EPOCHS+1 times)
@@ -125,7 +127,7 @@ def train(distribution, test_dataset, n_train, m):
             for batch, (inputs, targets) in enumerate(train_loader):
                 
                 # Forward
-                outputs = model(inputs)
+                outputs = nn(inputs)
                 outputs = outputs.reshape(-1)
                 loss = loss_function(outputs, targets)
 
@@ -137,8 +139,8 @@ def train(distribution, test_dataset, n_train, m):
             train_loss_values[epoch+1] = get_loss(nn, train_dataset)
             test_loss_values[epoch+1] = get_loss(nn, test_dataset)
 
-        axs[1,0].plot(range(EPOCHS+1), train_loss_values, linestyle='-', marker='o', color='#039be5')
-        axs[1,1].plot(range(EPOCHS+1), test_loss_values, linestyle='-', marker='o', color='#039be5')
+        axs[0].plot(range(EPOCHS+1), train_loss_values, linestyle='-', marker='o', color='#039be5')
+        axs[1].plot(range(EPOCHS+1), test_loss_values, linestyle='-', marker='o', color='#039be5')
 
     script_dir = os.path.dirname(__file__)
     fig_dir = os.path.join(script_dir, 'training_curves/N={0}/n_train={1}/'.format(N, n_train))
@@ -148,7 +150,7 @@ def train(distribution, test_dataset, n_train, m):
     fig.savefig(fig_dir + f'm={m}.pdf')
     matplotlib.pyplot.close(fig)
 
-    model.train(was_in_training)
+    nn.train(was_in_training)
 
     return
 
