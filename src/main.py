@@ -15,24 +15,24 @@ import math
 import shutil
 
 # Hyperparameters 
-N_VALUES = [10, 50, 100]
-n_TRAIN_VALUES = [1000, 2500, 5000, 7500, 10000]
+N_VALUES = [50]
+n_TRAIN_VALUES = [1000, 10000]
 n_TEST = 10000
-NUM_EXP = 20 # The number of experiments for each (N,n_train) tuple. In each experiment we use a new training dataset but the same testing dataset (V remains the same)
+NUM_EXP = 10 # The number of experiments for each (N,n_train) tuple. In each experiment we use a new training dataset but the same testing dataset (V remains the same)
 DEVICE_TYPE = 'cpu'
 DEVICE = torch.device(DEVICE_TYPE)
 loss_function = torch.nn.MSELoss()
-MAX_TIMES_N = 10
+MAX_TIMES_N = 20
 STEP_TIMES_N = 1
 
 # Hyperparameters
 BATCH_SIZE = 25
-LR = 0.01
+LR = 0.05
 MOMENTUM = 0.99
 
 # Stopping criteria 
 TRAIN_LOSS1 = 1e-1
-EPOCHS2 = 20
+EPOCHS2 = 10000
 TOTAL_BATCHES3_MIN = 5000
 BATCHES_PER_EPOCH = [ math.ceil(n_train/BATCH_SIZE) for n_train in n_TRAIN_VALUES]
 LCM = numpy.lcm.reduce(BATCHES_PER_EPOCH)
