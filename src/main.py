@@ -22,7 +22,7 @@ STEP_TIMES_N = 1
 
 # Hyperparameters
 BATCH_SIZE = 25
-LR = 0.01
+LR = 0.05
 MOMENTUM = 0.99
 
 # Stopping criteria 
