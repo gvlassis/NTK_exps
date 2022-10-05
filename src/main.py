@@ -13,7 +13,7 @@ import random
 N_VALUES = [10]
 n_TRAIN_VALUES = [10000]
 n_TEST = 10000
-NUM_EXP = 5 # The number of experiments for each (N,n_train) tuple. In each experiment we use a new training dataset but the same testing dataset (V remains the same)
+NUM_EXP = 1 # The number of experiments for each (N,n_train) tuple. In each experiment we use a new training dataset but the same testing dataset (V remains the same)
 DEVICE_TYPE = 'cpu'
 DEVICE = torch.device(DEVICE_TYPE)
 loss_function = torch.nn.MSELoss()
@@ -22,11 +22,12 @@ STEP_TIMES_N = 1
 
 # Hyperparameters
 BATCH_SIZE = 25
-LR = 0.05
-MOMENTUM = 0.99
+LR = 0.5
+MOMENTUM = 0.0
 
 # Stopping criteria 
-EPOCHS = 2000
+ALPHA = 3 
+BETA = 2
 
 class SphereDataset(torch.utils.data.Dataset):
     def __init__(self, distribution, n, V = None):
@@ -85,6 +86,13 @@ def get_loss(model, dataset):
     model.train(was_in_training)
     return loss.item()
 
+def has_converged(aN, last_DN_as):
+    for a in last_DN_as:
+        if abs(a-aN)>=aN/BETA:
+            return False
+
+    return True
+
 def train(distribution, test_dataset, n_train, m):
     N = list(distribution.event_shape)[0]
 
@@ -115,16 +123,29 @@ def train(distribution, test_dataset, n_train, m):
         # Run the experiment
         was_in_training = nn.training
         nn.train(True)
+            
+        epoch_values = [] # We do not know when the training will finish
+        train_loss_values = [] # train_loss_values[i]=The train loss in the BEGINNING of the i-th epoch 
+        test_loss_values = []
 
-        train_loss_values = numpy.empty(EPOCHS+1) # train_loss_values[i]=The train loss in the BEGINNING of the i-th epoch
-        test_loss_values = numpy.empty(EPOCHS+1) # We calculate train/test loss at the beginning and after each epoch (hence EPOCHS+1 times)
+        epoch = 0
+        while(True):
 
-        train_loss_values[0] = get_loss(nn, train_dataset)
-        test_loss_values[0] = get_loss(nn, test_dataset)
+            epoch_values.append(epoch)
+            train_loss_values.append(get_loss(nn, train_dataset))
+            test_loss_values.append(get_loss(nn, test_dataset))
+            
+            k = epoch+1
+            if k%ALPHA==0:
+                K = int(k/ALPHA)
+                DK = (ALPHA-1)*K
+                if has_converged(train_loss_values[K-1], train_loss_values[K:]): 
+                    print(f'(Convergence)N={N}, n_train={n_train}, m={m}, exp={exp}, epoch={epoch}, train_loss={train_loss_values[epoch]}')
+                    break
+            
+            if epoch%100==0: print(f'N={N}, n_train={n_train}, m={m}, exp={exp}, epoch={epoch}, train_loss={train_loss_values[epoch]}')
 
-        for epoch in range(EPOCHS):
-            if epoch%10==0: print(f'N={N}, n_train={n_train}, m={m}, exp={exp}, epoch={epoch}')
-
+            # If we do not have convergence... 
             for batch, (inputs, targets) in enumerate(train_loader):
                 
                 # Forward
@@ -137,12 +158,12 @@ def train(distribution, test_dataset, n_train, m):
                 loss.backward()
                 optimizer.step()
 
-            train_loss_values[epoch+1] = get_loss(nn, train_dataset)
-            test_loss_values[epoch+1] = get_loss(nn, test_dataset)
+            epoch += 1
         
+        # Create training curves 
         color = "#{:02x}{:02x}{:02x}".format(random.randint(0,255), random.randint(0,255), random.randint(0,255)) # For legibility
-        axs[0].plot(range(EPOCHS+1), train_loss_values, linestyle='-', color=color)
-        axs[1].plot(range(EPOCHS+1), test_loss_values, linestyle='-', color=color)
+        axs[0].plot(epoch_values, train_loss_values, linestyle='-', color=color)
+        axs[1].plot(epoch_values, test_loss_values, linestyle='-', color=color)
 
     script_dir = os.path.dirname(__file__)
     fig_dir = os.path.join(script_dir, 'training_curves/N={0}/n_train={1}/'.format(N, n_train))
