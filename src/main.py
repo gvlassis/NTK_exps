@@ -26,8 +26,8 @@ LR = 0.5
 MOMENTUM = 0.0
 
 # Stopping criteria 
-ALPHA = 3 
-BETA = 2
+ALPHA = 4
+BETA = -0.1
 
 class SphereDataset(torch.utils.data.Dataset):
     def __init__(self, distribution, n, V = None):
@@ -86,12 +86,17 @@ def get_loss(model, dataset):
     model.train(was_in_training)
     return loss.item()
 
-def has_converged(aN, last_DN_as):
-    for a in last_DN_as:
-        if abs(a-aN)>=aN/BETA:
-            return False
+def has_converged(a):
+    y1 = math.log(a[int(len(a)/ALPHA)],10)
+    y2 = math.log(a[-1],10)
+    dy = y2-y1
+    range_y=math.log(max(a),10)-math.log(min(a),10)
+    slope = dy/(range_y*(1-1/ALPHA))
+    print(f'slope={slope}')
+    if slope > BETA:
+        return True
 
-    return True
+    return False
 
 def train(distribution, test_dataset, n_train, m):
     N = list(distribution.event_shape)[0]
@@ -135,15 +140,10 @@ def train(distribution, test_dataset, n_train, m):
             train_loss_values.append(get_loss(nn, train_dataset))
             test_loss_values.append(get_loss(nn, test_dataset))
             
-            k = epoch+1
-            if k%ALPHA==0:
-                K = int(k/ALPHA)
-                DK = (ALPHA-1)*K
-                if has_converged(train_loss_values[K-1], train_loss_values[K:]): 
-                    print(f'(Convergence)N={N}, n_train={n_train}, m={m}, exp={exp}, epoch={epoch}, train_loss={train_loss_values[epoch]}')
+            if (epoch+1)%ALPHA==0:
+                print(f'N={N}, n_train={n_train}, m={m}, exp={exp}, epoch={epoch}, train_loss={train_loss_values[-1]}, ',end="")
+                if has_converged(train_loss_values): 
                     break
-            
-            if epoch%100==0: print(f'N={N}, n_train={n_train}, m={m}, exp={exp}, epoch={epoch}, train_loss={train_loss_values[epoch]}')
 
             # If we do not have convergence... 
             for batch, (inputs, targets) in enumerate(train_loader):
