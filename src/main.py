@@ -15,10 +15,10 @@ import math
 import shutil
 
 # Hyperparameters 
-N_VALUES = [50]
-n_TRAIN_VALUES = [1000, 1000]
+N = 10
+n_TRAIN = 10000
 n_TEST = 10000
-NUM_EXP = 3 # The number of experiments for each (N,n_train) tuple. In each experiment we use a new training dataset but the same testing dataset (V remains the same)
+NUM_EXP = 5 # The number of experiments for each (N,n_train) tuple. In each experiment we use a new training dataset but the same testing dataset (V remains the same)
 DEVICE_TYPE = 'cpu'
 DEVICE = torch.device(DEVICE_TYPE)
 loss_function = torch.nn.MSELoss()
@@ -31,15 +31,8 @@ LR = 0.01
 MOMENTUM = 0.99
 
 # Stopping criteria 
-TRAIN_LOSS1 = 1e-1
-EPOCHS2 = 3000
-TOTAL_BATCHES3_MIN = 5000
-BATCHES_PER_EPOCH = [ math.ceil(n_train/BATCH_SIZE) for n_train in n_TRAIN_VALUES]
-LCM = numpy.lcm.reduce(BATCHES_PER_EPOCH)
-COEFF = math.ceil(TOTAL_BATCHES3_MIN/LCM) # Minimum s.t: LCM*COEFF>=TOTAL_BATCHES3_MIN
-TOTAL_BATCHES3 = LCM*COEFF 
-TRAIN_LOSS_DIF4 = 0.0001
-EPOCH_DIF4 = 100
+ALPHA = 4
+BETA = -0.1
 
 class SphereDataset(torch.utils.data.Dataset):
     def __init__(self, distribution, n, V = None):
@@ -122,58 +115,37 @@ def K(a,b):
 
     return normprod*k(u)
 
-def train(model, train_loader, optimizer, train_dataset, N, n_train, m, exp):
+def has_converged(a):
+    y1 = math.log(a[int(len(a)/ALPHA)],10)
+    y2 = math.log(a[-1],10)
+    dy = y2-y1
+    range_y=math.log(max(a),10)-math.log(min(a),10)
+    slope = dy/(range_y*(1-1/ALPHA))
+    print(f'slope={slope}')
+    if slope > BETA:
+        return True
+
+    return False
+
+def train(model, train_loader, optimizer, train_dataset, N, m, exp):
     was_in_training = model.training
     model.train(True)
-
-    # Flags for the stopping criteria 
-    flag1 = False
-    flag2 = False
-    flag3 = False
-    flag4 = False
-
-    batches_per_epoch = math.ceil(n_train/BATCH_SIZE)
 
     epoch_values = [] # We do not know when the training will finish
     train_loss_values = [] # train_loss_values[i]=The train loss in the BEGINNING of the i-th epoch
 
     epoch = 0
-    while (True):
+    while(True):
         
         epoch_values.append(epoch)
         train_loss_values.append(get_loss(model, train_dataset))
 
-        if not(flag1) and train_loss_values[epoch] < TRAIN_LOSS1:
-            test_loss1 = get_loss(model, test_dataset)
-            flag1 = True
-            if(flag2 and flag3 and flag4):
-                print(f'N={N}, n_train={n_train}, m={m}, exp={exp}, epoch={epoch}, flag1={flag1}, flag2={flag2}, flag3={flag3}, flag4={flag4}')
+        if (epoch+1)%ALPHA==0: 
+            print(f'm={m}, exp={exp}, epoch={epoch}, train_loss={train_loss_values[-1]}, ',end="")
+            if has_converged(train_loss_values):
                 break
 
-        if not(flag2) and epoch == EPOCHS2:
-            test_loss2 = get_loss(model, test_dataset)
-            flag2 = True 
-            if(flag1 and flag3 and flag4):
-                print(f'N={N}, n_train={n_train}, m={m}, exp={exp}, epoch={epoch}, flag1={flag1}, flag2={flag2}, flag3={flag3}, flag4={flag4}')
-                break
-
-        if not(flag3) and epoch*batches_per_epoch == TOTAL_BATCHES3:
-            test_loss3 = get_loss(model, test_dataset)
-            flag3 = True
-            if(flag1 and flag2 and flag4):
-                print(f'N={N}, n_train={n_train}, m={m}, exp={exp}, epoch={epoch}, flag1={flag1}, flag2={flag2}, flag3={flag3}, flag4={flag4}')
-                break
-
-        # The 4th stopping criterion can only be triggered if we have trained for at least EPOCH_DIF4 epochs
-        if not(flag4) and epoch+1>=EPOCH_DIF4 and ((train_loss_values[epoch-EPOCH_DIF4]-train_loss_values[epoch])<TRAIN_LOSS_DIF4):
-            test_loss4 = get_loss(model, test_dataset)
-            flag4 = True
-            if(flag1 and flag2 and flag3):
-                print(f'N={N}, n_train={n_train}, m={m}, exp={exp}, epoch={epoch}, flag1={flag1}, flag2={flag2}, flag3={flag3}, flag4={flag4}')
-                break
-        
-        if epoch%100==0: print(f'N={N}, n_train={n_train}, m={m}, exp={exp}, epoch={epoch}, flag1={flag1}, flag2={flag2}, flag3={flag3}, flag4={flag4}')
-
+	# If we do not have convergence...
         for batch, (inputs, targets) in enumerate(train_loader):
             
             # Forward
@@ -190,7 +162,7 @@ def train(model, train_loader, optimizer, train_dataset, N, n_train, m, exp):
 
     # Create training curves
     fig, axs = matplotlib.pyplot.subplots(figsize=[10, 10], dpi=100, tight_layout=True)
-    fig.suptitle(f'N={N}, n_train={n_train}, m={m}, exp={exp}')
+    fig.suptitle(f'm={m}, exp={exp}')
 
     axs.plot(epoch_values, train_loss_values, linestyle='-', marker='o', color='#039be5')
     axs.set_xlabel('epoch')
@@ -199,7 +171,7 @@ def train(model, train_loader, optimizer, train_dataset, N, n_train, m, exp):
     axs.set_yscale('log')
 
     script_dir = os.path.dirname(__file__)
-    fig_dir = os.path.join(script_dir, 'training_curves/N={0}/n_train={1}/m={2}/'.format(N, n_train, m))
+    fig_dir = os.path.join(script_dir, 'training_curves/m={0}/'.format(m))
     if not os.path.isdir(fig_dir):
         os.makedirs(fig_dir)
 
@@ -208,7 +180,7 @@ def train(model, train_loader, optimizer, train_dataset, N, n_train, m, exp):
 
     model.train(was_in_training)
 
-    return test_loss1, test_loss2, test_loss3, test_loss4
+    return get_loss(model, test_dataset)
 
 # Clean working directory
 script_dir = os.path.dirname(__file__)
@@ -224,100 +196,67 @@ if DEVICE_TYPE == 'cuda':
 else:
     device_name = ''
 
-for N in N_VALUES:
-    distribution = torch.distributions.multivariate_normal.MultivariateNormal(torch.zeros(N,device=DEVICE), torch.eye(N,device=DEVICE)) # device=DEVICE is essential to get RNG in the GPU 
-    
-    start_time = time.time()
+distribution = torch.distributions.multivariate_normal.MultivariateNormal(torch.zeros(N,device=DEVICE), torch.eye(N,device=DEVICE)) # device=DEVICE is essential to get RNG in the GPU 
 
-    test_dataset = SphereDataset(distribution, n_TEST) # We have one V for each N
-    
-    # One figure for each N
-    fig, axs = matplotlib.pyplot.subplots(nrows=4, ncols=len(n_TRAIN_VALUES), figsize=[len(n_TRAIN_VALUES)*5, 4*5], dpi=100, tight_layout=True) # 500x500 plots
+start_time = time.time()
 
-    m_values = range(N, MAX_TIMES_N*N, STEP_TIMES_N*N)
-    for i, n_train in enumerate(n_TRAIN_VALUES):
-        loss1_nn_values = numpy.empty([len(m_values), NUM_EXP])
-        loss2_nn_values = numpy.empty([len(m_values), NUM_EXP])
-        loss3_nn_values = numpy.empty([len(m_values), NUM_EXP])
-        loss4_nn_values = numpy.empty([len(m_values), NUM_EXP])
-        for j, m in enumerate(m_values):
-            for exp in range(NUM_EXP):
-                train_dataset = SphereDataset(distribution, n_train, test_dataset.V)
-                train_loader = torch.utils.data.DataLoader(dataset=train_dataset, batch_size=BATCH_SIZE, shuffle=True)
+test_dataset = SphereDataset(distribution, n_TEST)
 
-                nn = NeuralNetwork(N,m)
-                nn.to(DEVICE)
+fig, axs = matplotlib.pyplot.subplots(figsize=[5, 5], dpi=100, tight_layout=True) # 500x500 plot
 
-                # Set up the optimizer for the nn
-                optimizer = torch.optim.SGD(nn.parameters(), lr=LR, momentum=MOMENTUM)
+m_values = range(N, MAX_TIMES_N*N, STEP_TIMES_N*N)
+loss_nn_values = numpy.empty([len(m_values), NUM_EXP])
+for j, m in enumerate(m_values):
+    for exp in range(NUM_EXP):
+        train_dataset = SphereDataset(distribution, n_TRAIN, test_dataset.V)
+        train_loader = torch.utils.data.DataLoader(dataset=train_dataset, batch_size=BATCH_SIZE, shuffle=True)
 
-                # Run the experiment
-                loss1_nn_values[j, exp], loss2_nn_values[j, exp], loss3_nn_values[j, exp], loss4_nn_values[j, exp] = train(nn, train_loader, optimizer, train_dataset, N, n_train, m, exp)
+        nn = NeuralNetwork(N,m)
+        nn.to(DEVICE)
 
-        # 4 subplots for each n
-        loss1_nn_values_mean = numpy.mean(loss1_nn_values, axis=1)
-        loss1_nn_values_std = numpy.std(loss1_nn_values, axis=1)
-        axs[0, i].errorbar(x=m_values, y=loss1_nn_values_mean, yerr=loss1_nn_values_std, linestyle='--', marker='o', color='#039be5', ecolor='#e53935', capsize=5)
-        axs[0, i].set_xlabel('m')
-        axs[0, i].set_ylabel('loss1')
-        axs[0, i].set_title(f'n_train={n_train}')
-        axs[0, i].grid()
+        # Set up the optimizer for the nn
+        optimizer = torch.optim.SGD(nn.parameters(), lr=LR, momentum=MOMENTUM)
 
-        loss2_nn_values_mean = numpy.mean(loss2_nn_values, axis=1)
-        loss2_nn_values_std = numpy.std(loss2_nn_values, axis=1)
-        axs[1, i].errorbar(x=m_values, y=loss2_nn_values_mean, yerr=loss2_nn_values_std, linestyle='--', marker='o', color='#039be5', ecolor='#e53935', capsize=5)
-        axs[1, i].set_xlabel('m')
-        axs[1, i].set_ylabel('loss2')
-        axs[1, i].set_title(f'n_train={n_train}')
-        axs[1, i].grid()
+        # Run the experiment
+        loss_nn_values[j, exp] = train(nn, train_loader, optimizer, train_dataset, N, m, exp)
 
-        loss3_nn_values_mean = numpy.mean(loss3_nn_values, axis=1)
-        loss3_nn_values_std = numpy.std(loss3_nn_values, axis=1)
-        axs[2, i].errorbar(x=m_values, y=loss3_nn_values_mean, yerr=loss3_nn_values_std, linestyle='--', marker='o', color='#039be5', ecolor='#e53935', capsize=5)
-        axs[2, i].set_xlabel('m')
-        axs[2, i].set_ylabel('loss3')
-        axs[2, i].set_title(f'n_train={n_train}')
-        axs[2, i].grid()
+loss_nn_values_mean = numpy.mean(loss_nn_values, axis=1)
+loss_nn_values_std = numpy.std(loss_nn_values, axis=1)
+axs.errorbar(x=m_values, y=loss_nn_values_mean, yerr=loss_nn_values_std, linestyle='--', marker='o', color='#039be5', ecolor='#e53935', capsize=5)
+axs.set_xlabel('m')
+axs.set_ylabel('loss')
+axs.set_title(f'n_TRAIN={n_TRAIN}')
+axs.grid()
 
-        loss4_nn_values_mean = numpy.mean(loss4_nn_values, axis=1)
-        loss4_nn_values_std = numpy.std(loss4_nn_values, axis=1)
-        axs[3, i].errorbar(x=m_values, y=loss4_nn_values_mean, yerr=loss4_nn_values_std, linestyle='--', marker='o', color='#039be5', ecolor='#e53935', capsize=5)
-        axs[3, i].set_xlabel('m')
-        axs[3, i].set_ylabel('loss4')
-        axs[3, i].grid()
-        
-        (train_inputs, train_targets) = train_dataset[:]
-        train_inputs = train_inputs.cpu().numpy() # .numpy() only takes tensor in CPU
-        train_targets = train_targets.cpu().numpy() # .numpy() only takes tensor in CPU
+(train_inputs, train_targets) = train_dataset[:]
+train_inputs = train_inputs.cpu().numpy() # .numpy() only takes tensor in CPU
+train_targets = train_targets.cpu().numpy() # .numpy() only takes tensor in CPU
 
-        (test_inputs, test_targets) = test_dataset[:]
-        test_inputs = test_inputs.cpu().numpy() # .numpy() only takes tensor in CPU
-        test_targets = test_targets.cpu().numpy() # .numpy() only takes tensor in CPU
+(test_inputs, test_targets) = test_dataset[:]
+test_inputs = test_inputs.cpu().numpy() # .numpy() only takes tensor in CPU
+test_targets = test_targets.cpu().numpy() # .numpy() only takes tensor in CPU
 
-        # Train the NTK(with the last train_dataset)
-        NTK = sklearn.kernel_ridge.KernelRidge(alpha=1e-10, kernel=K)
-        print('Training the NTK')
-        NTK.fit(train_inputs, train_targets)
-        print('Infering with the NTK')
-        loss_NTK = sklearn.metrics.mean_squared_error(test_targets,NTK.predict(test_inputs))
+# Train the NTK(with the last train_dataset)
+NTK = sklearn.kernel_ridge.KernelRidge(alpha=1e-10, kernel=K)
+print('Training the NTK')
+NTK.fit(train_inputs, train_targets)
+print('Infering with the NTK')
+loss_NTK = sklearn.metrics.mean_squared_error(test_targets,NTK.predict(test_inputs))
 
-        axs[0, i].plot(m_values, loss_NTK * numpy.ones(len(m_values)), linestyle='-', marker=None, color='#fbc02d')
-        axs[1, i].plot(m_values, loss_NTK * numpy.ones(len(m_values)), linestyle='-', marker=None, color='#fbc02d')
-        axs[2, i].plot(m_values, loss_NTK * numpy.ones(len(m_values)), linestyle='-', marker=None, color='#fbc02d')
-        axs[3, i].plot(m_values, loss_NTK * numpy.ones(len(m_values)), linestyle='-', marker=None, color='#fbc02d')
+axs.plot(m_values, loss_NTK * numpy.ones(len(m_values)), linestyle='-', marker=None, color='#fbc02d')
 
-    end_time = time.time()
-    fig.suptitle(f'N={N} (Time: {end_time-start_time:.0f}s, CPU: {cpu}, DEVICE_TYPE={DEVICE}[{device_name}])\n'
-                 f'n_TEST={n_TEST}, NUM_EXP={NUM_EXP}\n'
-                 f'TRAIN_LOSS1={TRAIN_LOSS1}, EPOCHS2={EPOCHS2}, TOTAL_BATCHES3={TOTAL_BATCHES3}, TRAIN_LOSS_DIF4={TRAIN_LOSS_DIF4}, EPOCH_DIF4={EPOCH_DIF4}\n')
+end_time = time.time()
+fig.suptitle(f'N={N} (Time: {end_time-start_time:.0f}s, CPU: {cpu}, DEVICE_TYPE={DEVICE}[{device_name}])\n'
+             f'n_TEST={n_TEST}, NUM_EXP={NUM_EXP}\n'
+             f'TRAIN_LOSS1={TRAIN_LOSS1}, EPOCHS2={EPOCHS2}, TOTAL_BATCHES3={TOTAL_BATCHES3}, TRAIN_LOSS_DIF4={TRAIN_LOSS_DIF4}, EPOCH_DIF4={EPOCH_DIF4}\n')
 
-    script_dir = os.path.dirname(__file__)
-    fig_dir = os.path.join(script_dir, 'main_plots/')
-    if not os.path.isdir(fig_dir):
-        os.makedirs(fig_dir)
+script_dir = os.path.dirname(__file__)
+fig_dir = os.path.join(script_dir, 'main_plots/')
+if not os.path.isdir(fig_dir):
+    os.makedirs(fig_dir)
 
-    fig.savefig(fig_dir + f'N={N}.pdf')
-    matplotlib.pyplot.close(fig)
+fig.savefig(fig_dir + f'N={N}.pdf')
+matplotlib.pyplot.close(fig)
 
-    print('Done!')
+print('Done!')
 
