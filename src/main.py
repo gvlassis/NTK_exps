@@ -15,24 +15,24 @@ import math
 import shutil
 
 # Hyperparameters 
-N = 10
-n_TRAIN = 10000
-n_TEST = 10000
-NUM_EXP = 5 # The number of experiments for each (N,n_train) tuple. In each experiment we use a new training dataset but the same testing dataset (V remains the same)
+N = 2
+n_TRAIN = 100
+n_TEST = 1000
+NUM_EXP = 20 # The number of experiments for each (N,n_train) tuple. In each experiment we use a new training dataset but the same testing dataset (V remains the same)
 DEVICE_TYPE = 'cpu'
 DEVICE = torch.device(DEVICE_TYPE)
 loss_function = torch.nn.MSELoss()
-MAX_TIMES_N = 60
-STEP_TIMES_N = 3
+MAX_TIMES_N = 5000
+STEP_TIMES_N = 250
 
 # Hyperparameters
 BATCH_SIZE = 25
 LR = 0.01
-MOMENTUM = 0.99
+MOMENTUM = 0.0
 
 # Stopping criteria 
 ALPHA = 4
-BETA = -0.1
+BETA = -0.2
 
 class SphereDataset(torch.utils.data.Dataset):
     def __init__(self, distribution, n, V = None):
@@ -81,6 +81,38 @@ class NeuralNetwork(torch.nn.Module):
 
         return output
 
+class NeuralNetworkASI(torch.nn.Module):
+    def __init__(self, N, m):
+        super(NeuralNetworkASI, self).__init__()
+        self.N = N
+        self.m = m
+        
+        self.hidden_layer1 = torch.nn.Linear(N, m, bias=False)
+        self.output_layer1 = torch.nn.Linear(m, 1, bias=False)
+        self.hidden_layer1.weight.data.normal_(mean=0.0, std=1)
+        self.output_layer1.weight.data.normal_(mean=0.0, std=1)
+
+        self.hidden_layer2 = torch.nn.Linear(N, m, bias=False)
+        self.output_layer2 = torch.nn.Linear(m, 1, bias=False)
+        with torch.no_grad(): 
+            self.hidden_layer2.weight.copy_(self.hidden_layer1.weight)
+            self.output_layer2.weight.copy_(self.output_layer1.weight)
+
+    def forward(self, input):
+        output1 = self.hidden_layer1(input)
+        output1 = torch.nn.functional.relu(output1)
+        output1 = self.output_layer1(output1)
+        output1 = output1*math.sqrt(2/self.m)
+ 
+        output2 = self.hidden_layer2(input)
+        output2 = torch.nn.functional.relu(output2)
+        output2 = self.output_layer2(output2)
+        output2 = output2*math.sqrt(2/self.m)
+
+        output = (math.sqrt(2)/2)*(output1 - output2)
+
+        return output
+
 def get_loss(model, dataset):
     was_in_training=model.training
     model.train(False)
@@ -89,6 +121,49 @@ def get_loss(model, dataset):
     outputs = model(inputs) 
     outputs = outputs.reshape(-1) # Otherwise, outputs.shape=torch.Size([n, 1]) while loss_function() expects two tensors of the same shape and type
     loss = loss_function(outputs, targets)
+
+    model.train(was_in_training)
+    return loss.item()
+
+def get_loss_and_visualize_2D(model, dataset, m, exp):
+    was_in_training=model.training
+    model.train(False)
+
+    (inputs, targets) = dataset[:]
+    outputs = model(inputs) 
+    outputs = outputs.reshape(-1) # Otherwise, outputs.shape=torch.Size([n, 1]) while loss_function() expects two tensors of the same shape and type
+    loss = loss_function(outputs, targets)
+    
+    fig, axs = matplotlib.pyplot.subplots(figsize=[10, 10], dpi=100, tight_layout=True)
+    fig.suptitle(f'm={m}, exp={exp}')
+
+    axs.set_xlabel('x')
+    axs.set_ylabel('y')
+    axs.grid()
+
+    for i, input in enumerate(inputs):
+        if outputs[i]>0.5:
+            axs.plot(input[0], input[1], linestyle='None', marker='o', color='#212121')
+        else: 
+            axs.plot(input[0], input[1], linestyle='None', marker='o', color='#90a4ae')
+    
+    x = dataset.V[0]
+    y = dataset.V[1]
+    axs.quiver(0, 0, x, y, angles='xy', scale_units='xy', scale=1)
+    
+    x1 = -math.sqrt(1/(1+x**2/y**2))
+    y1 = (-x/y)*x1
+    x2 = math.sqrt(1/(1+x**2/y**2))
+    y2 = (-x/y)*x2
+    axs.plot([x1,x2],[y1,y2], linestyle='--', marker='o', color='#03a9f4')
+
+    script_dir = os.path.dirname(__file__)
+    fig_dir = os.path.join(script_dir, 'visualization/m={0}/'.format(m))
+    if not os.path.isdir(fig_dir):
+        os.makedirs(fig_dir)
+
+    fig.savefig(fig_dir + f'exp={exp}.pdf')
+    matplotlib.pyplot.close(fig)
 
     model.train(was_in_training)
     return loss.item()
@@ -119,13 +194,47 @@ def has_converged(a):
     y1 = math.log(a[int(len(a)/ALPHA)],10)
     y2 = math.log(a[-1],10)
     dy = y2-y1
-    range_y=math.log(max(a),10)-math.log(min(a),10)
+    range_y = math.log(max(a),10)-math.log(min(a),10)
     slope = dy/(range_y*(1-1/ALPHA))
     print(f'slope={slope}')
     if slope > BETA:
         return True
 
     return False
+
+def visualize_NTK(outputs, dataset):
+    (inputs, _) = dataset[:]
+    
+    fig, axs = matplotlib.pyplot.subplots(figsize=[10, 10], dpi=100, tight_layout=True)
+    fig.suptitle(f'NTK')
+
+    axs.set_xlabel('x')
+    axs.set_ylabel('y')
+    axs.grid()
+
+    for i, input in enumerate(inputs):
+        if outputs[i]>0.5:
+            axs.plot(input[0], input[1], linestyle='None', marker='o', color='#212121')
+        else: 
+            axs.plot(input[0], input[1], linestyle='None', marker='o', color='#90a4ae')
+    
+    x = dataset.V[0]
+    y = dataset.V[1]
+    axs.quiver(0, 0, x, y, angles='xy', scale_units='xy', scale=1)
+    
+    x1 = -math.sqrt(1/(1+x**2/y**2))
+    y1 = (-x/y)*x1
+    x2 = math.sqrt(1/(1+x**2/y**2))
+    y2 = (-x/y)*x2
+    axs.plot([x1,x2],[y1,y2], linestyle='--', marker='o', color='#03a9f4')
+
+    script_dir = os.path.dirname(__file__)
+    fig_dir = os.path.join(script_dir, 'visualization/'.format(m))
+    if not os.path.isdir(fig_dir):
+        os.makedirs(fig_dir)
+
+    fig.savefig(fig_dir + f'NTK.pdf')
+    matplotlib.pyplot.close(fig)
 
 def train(model, train_loader, optimizer, train_dataset, N, m, exp):
     was_in_training = model.training
@@ -140,7 +249,7 @@ def train(model, train_loader, optimizer, train_dataset, N, m, exp):
         epoch_values.append(epoch)
         train_loss_values.append(get_loss(model, train_dataset))
 
-        if (epoch+1)%ALPHA==0: 
+        if (epoch+1)%ALPHA==0:
             print(f'm={m}, exp={exp}, epoch={epoch}, train_loss={train_loss_values[-1]}, ',end="")
             if has_converged(train_loss_values):
                 break
@@ -180,7 +289,7 @@ def train(model, train_loader, optimizer, train_dataset, N, m, exp):
 
     model.train(was_in_training)
 
-    return get_loss(model, test_dataset)
+    return get_loss_and_visualize_2D(model, test_dataset, m, exp)
 
 # Clean working directory
 script_dir = os.path.dirname(__file__)
@@ -211,7 +320,7 @@ for j, m in enumerate(m_values):
         train_dataset = SphereDataset(distribution, n_TRAIN, test_dataset.V)
         train_loader = torch.utils.data.DataLoader(dataset=train_dataset, batch_size=BATCH_SIZE, shuffle=True)
 
-        nn = NeuralNetwork(N,m)
+        nn = NeuralNetworkASI(N,m)
         nn.to(DEVICE)
 
         # Set up the optimizer for the nn
@@ -219,6 +328,7 @@ for j, m in enumerate(m_values):
 
         # Run the experiment
         loss_nn_values[j, exp] = train(nn, train_loader, optimizer, train_dataset, N, m, exp)
+        
 
 loss_nn_values_mean = numpy.mean(loss_nn_values, axis=1)
 loss_nn_values_std = numpy.std(loss_nn_values, axis=1)
@@ -241,14 +351,16 @@ NTK = sklearn.kernel_ridge.KernelRidge(alpha=1e-10, kernel=K)
 print('Training the NTK')
 NTK.fit(train_inputs, train_targets)
 print('Infering with the NTK')
-loss_NTK = sklearn.metrics.mean_squared_error(test_targets,NTK.predict(test_inputs))
+test_outputs = NTK.predict(test_inputs)
+loss_NTK = sklearn.metrics.mean_squared_error(test_targets, test_outputs)
+visualize_NTK(test_outputs, test_dataset)
 
 axs.plot(m_values, loss_NTK * numpy.ones(len(m_values)), linestyle='-', marker=None, color='#fbc02d')
 
 end_time = time.time()
 fig.suptitle(f'N={N} (Time: {end_time-start_time:.0f}s, CPU: {cpu}, DEVICE_TYPE={DEVICE}[{device_name}])\n'
              f'n_TEST={n_TEST}, NUM_EXP={NUM_EXP}\n'
-             f'TRAIN_LOSS1={TRAIN_LOSS1}, EPOCHS2={EPOCHS2}, TOTAL_BATCHES3={TOTAL_BATCHES3}, TRAIN_LOSS_DIF4={TRAIN_LOSS_DIF4}, EPOCH_DIF4={EPOCH_DIF4}\n')
+             f'ALPHA={ALPHA}, BETA={BETA}\n')
 
 script_dir = os.path.dirname(__file__)
 fig_dir = os.path.join(script_dir, 'main_plots/')
