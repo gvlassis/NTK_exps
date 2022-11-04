@@ -16,18 +16,18 @@ import shutil
 
 # Hyperparameters 
 N = 1
-n_TRAIN = 1000
+n_TRAIN = 50
 n_TEST = 1000
-NUM_EXP_NN = 2 # The number of experiments for each (N,n_train) tuple. In each experiment we use a new training dataset but the same testing dataset (V remains the same)
-NUM_EXP_NTK = 2
+NUM_EXP_NN = 20 # The number of experiments for each (N,n_train) tuple. In each experiment we use a new training dataset but the same testing dataset (V remains the same)
+NUM_EXP_NTK = 5
 DEVICE_TYPE = 'cpu'
 DEVICE = torch.device(DEVICE_TYPE)
 loss_function = torch.nn.MSELoss()
-MAX_TIMES_N = 1000
+MAX_TIMES_N = 10000
 STEP_TIMES_N = 500
 
 # Hyperparameters
-BATCH_SIZE = 25
+BATCH_SIZE = 10
 LR = 0.01
 MOMENTUM = 0.0
 
@@ -191,7 +191,7 @@ def has_converged(a):
     range_y = math.log(max(a),10)-math.log(min(a),10)
     if range_y == 0: slope=0
     else: slope = dy/(range_y*(1-1/ALPHA))
-
+    
     print(f'slope={slope}')
     if slope > BETA:
         return True
