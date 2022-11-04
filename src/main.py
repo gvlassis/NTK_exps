@@ -15,15 +15,16 @@ import math
 import shutil
 
 # Hyperparameters 
-N = 2
-n_TRAIN = 100
+N = 1
+n_TRAIN = 1000
 n_TEST = 1000
-NUM_EXP = 20 # The number of experiments for each (N,n_train) tuple. In each experiment we use a new training dataset but the same testing dataset (V remains the same)
+NUM_EXP_NN = 2 # The number of experiments for each (N,n_train) tuple. In each experiment we use a new training dataset but the same testing dataset (V remains the same)
+NUM_EXP_NTK = 2
 DEVICE_TYPE = 'cpu'
 DEVICE = torch.device(DEVICE_TYPE)
 loss_function = torch.nn.MSELoss()
-MAX_TIMES_N = 5000
-STEP_TIMES_N = 250
+MAX_TIMES_N = 1000
+STEP_TIMES_N = 500
 
 # Hyperparameters
 BATCH_SIZE = 25
@@ -34,21 +35,17 @@ MOMENTUM = 0.0
 ALPHA = 4
 BETA = -0.2
 
-class SphereDataset(torch.utils.data.Dataset):
+class UniformDataset(torch.utils.data.Dataset):
     def __init__(self, distribution, n, V = None):
         self.dim = distribution.event_shape
         self.len = n
 
         if V is None:
             self.V = distribution.sample()
-            self.V = self.V / torch.linalg.norm(self.V)
         else:
             self.V = V
         
         self.X = distribution.sample((n,))
-        line_norms = torch.linalg.norm(self.X,dim=1)
-        line_norms_T = torch.reshape(line_norms,(n,1))
-        self.X = self.X/line_norms_T
   
         self.Y = torch.matmul(self.X,self.V)
         self.Y = self.Y >= 0 
@@ -125,7 +122,22 @@ def get_loss(model, dataset):
     model.train(was_in_training)
     return loss.item()
 
-def get_loss_and_visualize_2D(model, dataset, m, exp):
+def print_1D(axs, outputs, dataset):
+    (inputs, _) = dataset[:]
+
+    axs.set_xlabel('x')
+    axs.set_ylabel('y')
+    axs.grid()
+
+    for i, input in enumerate(inputs):
+        if outputs[i]>0.5:
+            axs.plot(input[0], 0, linestyle='None', marker='o', color='#212121')
+        else: 
+            axs.plot(input[0], 0, linestyle='None', marker='o', color='#90a4ae')
+    
+    axs.plot(dataset.V[0], 0.0, linestyle='None', marker='o', color='#42a5f5')
+
+def get_loss_and_visualize_1D(model, dataset, m, exp):
     was_in_training=model.training
     model.train(False)
 
@@ -137,25 +149,7 @@ def get_loss_and_visualize_2D(model, dataset, m, exp):
     fig, axs = matplotlib.pyplot.subplots(figsize=[10, 10], dpi=100, tight_layout=True)
     fig.suptitle(f'm={m}, exp={exp}')
 
-    axs.set_xlabel('x')
-    axs.set_ylabel('y')
-    axs.grid()
-
-    for i, input in enumerate(inputs):
-        if outputs[i]>0.5:
-            axs.plot(input[0], input[1], linestyle='None', marker='o', color='#212121')
-        else: 
-            axs.plot(input[0], input[1], linestyle='None', marker='o', color='#90a4ae')
-    
-    x = dataset.V[0]
-    y = dataset.V[1]
-    axs.quiver(0, 0, x, y, angles='xy', scale_units='xy', scale=1)
-    
-    x1 = -math.sqrt(1/(1+x**2/y**2))
-    y1 = (-x/y)*x1
-    x2 = math.sqrt(1/(1+x**2/y**2))
-    y2 = (-x/y)*x2
-    axs.plot([x1,x2],[y1,y2], linestyle='--', marker='o', color='#03a9f4')
+    print_1D(axs, outputs, dataset)
 
     script_dir = os.path.dirname(__file__)
     fig_dir = os.path.join(script_dir, 'visualization/m={0}/'.format(m))
@@ -195,45 +189,27 @@ def has_converged(a):
     y2 = math.log(a[-1],10)
     dy = y2-y1
     range_y = math.log(max(a),10)-math.log(min(a),10)
-    slope = dy/(range_y*(1-1/ALPHA))
+    if range_y == 0: slope=0
+    else: slope = dy/(range_y*(1-1/ALPHA))
+
     print(f'slope={slope}')
     if slope > BETA:
         return True
 
     return False
 
-def visualize_NTK(outputs, dataset):
-    (inputs, _) = dataset[:]
-    
+def visualize_NTK(outputs, dataset, exp):
     fig, axs = matplotlib.pyplot.subplots(figsize=[10, 10], dpi=100, tight_layout=True)
     fig.suptitle(f'NTK')
 
-    axs.set_xlabel('x')
-    axs.set_ylabel('y')
-    axs.grid()
-
-    for i, input in enumerate(inputs):
-        if outputs[i]>0.5:
-            axs.plot(input[0], input[1], linestyle='None', marker='o', color='#212121')
-        else: 
-            axs.plot(input[0], input[1], linestyle='None', marker='o', color='#90a4ae')
-    
-    x = dataset.V[0]
-    y = dataset.V[1]
-    axs.quiver(0, 0, x, y, angles='xy', scale_units='xy', scale=1)
-    
-    x1 = -math.sqrt(1/(1+x**2/y**2))
-    y1 = (-x/y)*x1
-    x2 = math.sqrt(1/(1+x**2/y**2))
-    y2 = (-x/y)*x2
-    axs.plot([x1,x2],[y1,y2], linestyle='--', marker='o', color='#03a9f4')
+    print_1D(axs, outputs, dataset)
 
     script_dir = os.path.dirname(__file__)
-    fig_dir = os.path.join(script_dir, 'visualization/'.format(m))
+    fig_dir = os.path.join(script_dir, 'visualization/NTK/'.format(m))
     if not os.path.isdir(fig_dir):
         os.makedirs(fig_dir)
 
-    fig.savefig(fig_dir + f'NTK.pdf')
+    fig.savefig(fig_dir + f'exp={exp}.pdf')
     matplotlib.pyplot.close(fig)
 
 def train(model, train_loader, optimizer, train_dataset, N, m, exp):
@@ -270,14 +246,20 @@ def train(model, train_loader, optimizer, train_dataset, N, m, exp):
         epoch += 1
 
     # Create training curves
-    fig, axs = matplotlib.pyplot.subplots(figsize=[10, 10], dpi=100, tight_layout=True)
+    fig, axs = matplotlib.pyplot.subplots(ncols=2, figsize=[20, 10], dpi=100, tight_layout=True)
     fig.suptitle(f'm={m}, exp={exp}')
 
-    axs.plot(epoch_values, train_loss_values, linestyle='-', marker='o', color='#039be5')
-    axs.set_xlabel('epoch')
-    axs.set_ylabel('train_loss')
-    axs.grid()
-    axs.set_yscale('log')
+    axs[0].plot(epoch_values, train_loss_values, linestyle='-', marker='o', color='#039be5')
+    axs[0].set_xlabel('epoch')
+    axs[0].set_ylabel('train_loss')
+    axs[0].grid()
+    axs[0].set_yscale('log')
+
+    model.train(False)
+    (inputs, _) = train_dataset[:]
+    outputs = model(inputs) 
+    outputs = outputs.reshape(-1) # Otherwise, outputs.shape=torch.Size([n, 1])
+    print_1D(axs[1], outputs, train_dataset)
 
     script_dir = os.path.dirname(__file__)
     fig_dir = os.path.join(script_dir, 'training_curves/m={0}/'.format(m))
@@ -289,13 +271,15 @@ def train(model, train_loader, optimizer, train_dataset, N, m, exp):
 
     model.train(was_in_training)
 
-    return get_loss_and_visualize_2D(model, test_dataset, m, exp)
+    return get_loss_and_visualize_1D(model, test_dataset, m, exp)
 
 # Clean working directory
 script_dir = os.path.dirname(__file__)
 dir_to_clean = os.path.join(script_dir, 'training_curves/')
 if os.path.isdir(dir_to_clean): shutil.rmtree(dir_to_clean)
 dir_to_clean = os.path.join(script_dir, 'main_plots/')
+if os.path.isdir(dir_to_clean): shutil.rmtree(dir_to_clean)
+dir_to_clean = os.path.join(script_dir, 'visualization/')
 if os.path.isdir(dir_to_clean): shutil.rmtree(dir_to_clean)
 
 # Get CPU (and GPU) info for logging purposes 
@@ -305,19 +289,19 @@ if DEVICE_TYPE == 'cuda':
 else:
     device_name = ''
 
-distribution = torch.distributions.multivariate_normal.MultivariateNormal(torch.zeros(N,device=DEVICE), torch.eye(N,device=DEVICE)) # device=DEVICE is essential to get RNG in the GPU 
+distribution = torch.distributions.uniform.Uniform(torch.tensor([-1.0],device=DEVICE), torch.tensor([1.0],device=DEVICE)) # device=DEVICE is essential to get RNG in the GPU 
 
 start_time = time.time()
 
-test_dataset = SphereDataset(distribution, n_TEST)
+test_dataset = UniformDataset(distribution, n_TEST)
 
 fig, axs = matplotlib.pyplot.subplots(figsize=[5, 5], dpi=100, tight_layout=True) # 500x500 plot
 
 m_values = range(N, MAX_TIMES_N*N, STEP_TIMES_N*N)
-loss_nn_values = numpy.empty([len(m_values), NUM_EXP])
+loss_nn_values = numpy.empty([len(m_values), NUM_EXP_NN])
 for j, m in enumerate(m_values):
-    for exp in range(NUM_EXP):
-        train_dataset = SphereDataset(distribution, n_TRAIN, test_dataset.V)
+    for exp in range(NUM_EXP_NN):
+        train_dataset = UniformDataset(distribution, n_TRAIN, test_dataset.V)
         train_loader = torch.utils.data.DataLoader(dataset=train_dataset, batch_size=BATCH_SIZE, shuffle=True)
 
         nn = NeuralNetworkASI(N,m)
@@ -338,28 +322,41 @@ axs.set_ylabel('loss')
 axs.set_title(f'n_TRAIN={n_TRAIN}')
 axs.grid()
 
-(train_inputs, train_targets) = train_dataset[:]
-train_inputs = train_inputs.cpu().numpy() # .numpy() only takes tensor in CPU
-train_targets = train_targets.cpu().numpy() # .numpy() only takes tensor in CPU
-
 (test_inputs, test_targets) = test_dataset[:]
 test_inputs = test_inputs.cpu().numpy() # .numpy() only takes tensor in CPU
 test_targets = test_targets.cpu().numpy() # .numpy() only takes tensor in CPU
 
-# Train the NTK(with the last train_dataset)
-NTK = sklearn.kernel_ridge.KernelRidge(alpha=1e-10, kernel=K)
-print('Training the NTK')
-NTK.fit(train_inputs, train_targets)
-print('Infering with the NTK')
-test_outputs = NTK.predict(test_inputs)
-loss_NTK = sklearn.metrics.mean_squared_error(test_targets, test_outputs)
-visualize_NTK(test_outputs, test_dataset)
+# Train the NTKs
+loss_NTK_values = numpy.empty([NUM_EXP_NTK])
+for exp in range(NUM_EXP_NTK):
+    train_dataset = UniformDataset(distribution, n_TRAIN, test_dataset.V)
+    (train_inputs, train_targets) = train_dataset[:]
+    train_inputs = train_inputs.cpu().numpy() # .numpy() only takes tensor in CPU
+    train_targets = train_targets.cpu().numpy() # .numpy() only takes tensor in CPU
 
-axs.plot(m_values, loss_NTK * numpy.ones(len(m_values)), linestyle='-', marker=None, color='#fbc02d')
+    NTK = sklearn.kernel_ridge.KernelRidge(alpha=1e-10, kernel=K)
+    print(f'Training NTK#{exp}')
+    NTK.fit(train_inputs, train_targets)
+    print(f'Infering NTK#{exp}')
+    test_outputs = NTK.predict(test_inputs)
+    print(len(test_outputs))
+    print(f'test_outputs={test_outputs}')
+    print(len(test_targets))
+    print(f'test_targets={test_targets}')
+    loss_NTK_values[exp] = sklearn.metrics.mean_squared_error(test_targets, test_outputs)
+    visualize_NTK(test_outputs, test_dataset, exp)
+
+print(f'loss_NTK_values={loss_NTK_values}')
+loss_NTK_values_mean = numpy.mean(loss_NTK_values)
+loss_NTK_values_std = numpy.std(loss_NTK_values)
+
+axs.plot(m_values, (loss_NTK_values_mean+loss_NTK_values_std) * numpy.ones(len(m_values)), linestyle='-', marker=None, color='#8e0000')
+axs.plot(m_values, loss_NTK_values_mean * numpy.ones(len(m_values)), linestyle='-', marker=None, color='#fbc02d')
+axs.plot(m_values, (loss_NTK_values_mean-loss_NTK_values_std) * numpy.ones(len(m_values)), linestyle='-', marker=None, color='#8e0000')
 
 end_time = time.time()
 fig.suptitle(f'N={N} (Time: {end_time-start_time:.0f}s, CPU: {cpu}, DEVICE_TYPE={DEVICE}[{device_name}])\n'
-             f'n_TEST={n_TEST}, NUM_EXP={NUM_EXP}\n'
+             f'n_TEST={n_TEST}, NUM_EXP_NN={NUM_EXP_NN}, NUM_EXP_NTK={NUM_EXP_NTK}\n'
              f'ALPHA={ALPHA}, BETA={BETA}\n')
 
 script_dir = os.path.dirname(__file__)
