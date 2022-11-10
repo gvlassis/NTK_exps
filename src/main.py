@@ -14,20 +14,18 @@ import sklearn.metrics
 import math
 import shutil
 
-# Hyperparameters 
-N = 1
-n_TRAIN = 50
-n_TEST = 1000
-NUM_EXP_NN = 20 # The number of experiments for each (N,n_train) tuple. In each experiment we use a new training dataset but the same testing dataset (V remains the same)
-NUM_EXP_NTK = 5
+# Hyperparameters
+n_TEST = 200 
+NUM_EXP_NN = 1 # The number of experiments for each (N,n_train) tuple. In each experiment we use a new training dataset but the same testing dataset (V remains the same)
+NUM_EXP_NTK = 1
 DEVICE_TYPE = 'cpu'
 DEVICE = torch.device(DEVICE_TYPE)
 loss_function = torch.nn.MSELoss()
-MAX_TIMES_N = 10000
-STEP_TIMES_N = 500
+MAX_WIDTH = 2000
+STEP_WIDTH = 500
 
 # Hyperparameters
-BATCH_SIZE = 10
+BATCH_SIZE = 1
 LR = 0.01
 MOMENTUM = 0.0
 
@@ -35,21 +33,12 @@ MOMENTUM = 0.0
 ALPHA = 4
 BETA = -0.2
 
-class UniformDataset(torch.utils.data.Dataset):
-    def __init__(self, distribution, n, V = None):
-        self.dim = distribution.event_shape
-        self.len = n
-
-        if V is None:
-            self.V = distribution.sample()
-        else:
-            self.V = V
+class ManualDataset(torch.utils.data.Dataset):
+    def __init__(self, X, Y):
+        self.len = len(X)
         
-        self.X = distribution.sample((n,))
-  
-        self.Y = torch.matmul(self.X,self.V)
-        self.Y = self.Y >= 0 
-        self.Y = self.Y.float()
+        self.X = torch.tensor(X).reshape((self.len,1)).float()
+        self.Y = torch.tensor(Y).float()
 
     def __getitem__(self, i):
         return self.X[i], self.Y[i]
@@ -58,11 +47,10 @@ class UniformDataset(torch.utils.data.Dataset):
         return self.len
 
 class NeuralNetwork(torch.nn.Module):
-    def __init__(self, N, m):
+    def __init__(self, m):
         super(NeuralNetwork, self).__init__()
-        self.N = N
         self.m = m
-        self.hidden_layer = torch.nn.Linear(N, m, bias=False)
+        self.hidden_layer = torch.nn.Linear(1, m, bias=False)
         self.output_layer = torch.nn.Linear(m, 1, bias=False)
         self.apply(self._init_weights)
 
@@ -79,17 +67,16 @@ class NeuralNetwork(torch.nn.Module):
         return output
 
 class NeuralNetworkASI(torch.nn.Module):
-    def __init__(self, N, m):
+    def __init__(self, m):
         super(NeuralNetworkASI, self).__init__()
-        self.N = N
         self.m = m
         
-        self.hidden_layer1 = torch.nn.Linear(N, m, bias=False)
+        self.hidden_layer1 = torch.nn.Linear(1, m, bias=False)
         self.output_layer1 = torch.nn.Linear(m, 1, bias=False)
         self.hidden_layer1.weight.data.normal_(mean=0.0, std=1)
         self.output_layer1.weight.data.normal_(mean=0.0, std=1)
 
-        self.hidden_layer2 = torch.nn.Linear(N, m, bias=False)
+        self.hidden_layer2 = torch.nn.Linear(1, m, bias=False)
         self.output_layer2 = torch.nn.Linear(m, 1, bias=False)
         with torch.no_grad(): 
             self.hidden_layer2.weight.copy_(self.hidden_layer1.weight)
@@ -122,21 +109,14 @@ def get_loss(model, dataset):
     model.train(was_in_training)
     return loss.item()
 
-def print_1D(axs, outputs, dataset):
-    (inputs, _) = dataset[:]
-
+def print_1D(axs, inputs, outputs):
     axs.set_xlabel('x')
     axs.set_ylabel('y')
     axs.grid()
 
     for i, input in enumerate(inputs):
-        if outputs[i]>0.5:
-            axs.plot(input[0], 0, linestyle='None', marker='o', color='#212121')
-        else: 
-            axs.plot(input[0], 0, linestyle='None', marker='o', color='#90a4ae')
-    
-    axs.plot(dataset.V[0], 0.0, linestyle='None', marker='o', color='#42a5f5')
-
+        axs.plot(input[0], outputs[i], linestyle='None', marker='o', color='#039be5')
+  
 def get_loss_and_visualize_1D(model, dataset, m, exp):
     was_in_training=model.training
     model.train(False)
@@ -149,7 +129,7 @@ def get_loss_and_visualize_1D(model, dataset, m, exp):
     fig, axs = matplotlib.pyplot.subplots(figsize=[10, 10], dpi=100, tight_layout=True)
     fig.suptitle(f'm={m}, exp={exp}')
 
-    print_1D(axs, outputs, dataset)
+    print_1D(axs, inputs.numpy(), outputs.detach().numpy())
 
     script_dir = os.path.dirname(__file__)
     fig_dir = os.path.join(script_dir, 'visualization/m={0}/'.format(m))
@@ -198,11 +178,11 @@ def has_converged(a):
 
     return False
 
-def visualize_NTK(outputs, dataset, exp):
+def visualize_NTK(inputs, outputs, exp):
     fig, axs = matplotlib.pyplot.subplots(figsize=[10, 10], dpi=100, tight_layout=True)
     fig.suptitle(f'NTK')
 
-    print_1D(axs, outputs, dataset)
+    print_1D(axs, inputs, outputs)
 
     script_dir = os.path.dirname(__file__)
     fig_dir = os.path.join(script_dir, 'visualization/NTK/'.format(m))
@@ -212,7 +192,7 @@ def visualize_NTK(outputs, dataset, exp):
     fig.savefig(fig_dir + f'exp={exp}.pdf')
     matplotlib.pyplot.close(fig)
 
-def train(model, train_loader, optimizer, train_dataset, N, m, exp):
+def train(model, train_loader, optimizer, train_dataset, m, exp):
     was_in_training = model.training
     model.train(True)
 
@@ -259,7 +239,7 @@ def train(model, train_loader, optimizer, train_dataset, N, m, exp):
     (inputs, _) = train_dataset[:]
     outputs = model(inputs) 
     outputs = outputs.reshape(-1) # Otherwise, outputs.shape=torch.Size([n, 1])
-    print_1D(axs[1], outputs, train_dataset)
+    print_1D(axs[1], inputs.numpy(), outputs.detach().numpy())
 
     script_dir = os.path.dirname(__file__)
     fig_dir = os.path.join(script_dir, 'training_curves/m={0}/'.format(m))
@@ -289,37 +269,33 @@ if DEVICE_TYPE == 'cuda':
 else:
     device_name = ''
 
-distribution = torch.distributions.uniform.Uniform(torch.tensor([-1.0],device=DEVICE), torch.tensor([1.0],device=DEVICE)) # device=DEVICE is essential to get RNG in the GPU 
-
 start_time = time.time()
 
-test_dataset = UniformDataset(distribution, n_TEST)
+test_dataset = ManualDataset(numpy.linspace(-1, 1, n_TEST), numpy.zeros(n_TEST))
 
 fig, axs = matplotlib.pyplot.subplots(figsize=[5, 5], dpi=100, tight_layout=True) # 500x500 plot
 
-m_values = range(N, MAX_TIMES_N*N, STEP_TIMES_N*N)
+m_values = range(1, MAX_WIDTH, STEP_WIDTH)
 loss_nn_values = numpy.empty([len(m_values), NUM_EXP_NN])
 for j, m in enumerate(m_values):
     for exp in range(NUM_EXP_NN):
-        train_dataset = UniformDataset(distribution, n_TRAIN, test_dataset.V)
+        train_dataset = ManualDataset([-0.6, 0.2, 0.8], [2, 0.5, 1])
         train_loader = torch.utils.data.DataLoader(dataset=train_dataset, batch_size=BATCH_SIZE, shuffle=True)
 
-        nn = NeuralNetworkASI(N,m)
+        nn = NeuralNetworkASI(m)
         nn.to(DEVICE)
 
         # Set up the optimizer for the nn
         optimizer = torch.optim.SGD(nn.parameters(), lr=LR, momentum=MOMENTUM)
 
         # Run the experiment
-        loss_nn_values[j, exp] = train(nn, train_loader, optimizer, train_dataset, N, m, exp)
-        
-
+        loss_nn_values[j, exp] = train(nn, train_loader, optimizer, train_dataset, m, exp)
+    
 loss_nn_values_mean = numpy.mean(loss_nn_values, axis=1)
 loss_nn_values_std = numpy.std(loss_nn_values, axis=1)
 axs.errorbar(x=m_values, y=loss_nn_values_mean, yerr=loss_nn_values_std, linestyle='--', marker='o', color='#039be5', ecolor='#e53935', capsize=5)
 axs.set_xlabel('m')
 axs.set_ylabel('loss')
-axs.set_title(f'n_TRAIN={n_TRAIN}')
 axs.grid()
 
 (test_inputs, test_targets) = test_dataset[:]
@@ -329,7 +305,7 @@ test_targets = test_targets.cpu().numpy() # .numpy() only takes tensor in CPU
 # Train the NTKs
 loss_NTK_values = numpy.empty([NUM_EXP_NTK])
 for exp in range(NUM_EXP_NTK):
-    train_dataset = UniformDataset(distribution, n_TRAIN, test_dataset.V)
+    train_dataset = ManualDataset([-0.6, 0.2, 0.8], [2, 0.5, 1])
     (train_inputs, train_targets) = train_dataset[:]
     train_inputs = train_inputs.cpu().numpy() # .numpy() only takes tensor in CPU
     train_targets = train_targets.cpu().numpy() # .numpy() only takes tensor in CPU
@@ -339,14 +315,9 @@ for exp in range(NUM_EXP_NTK):
     NTK.fit(train_inputs, train_targets)
     print(f'Infering NTK#{exp}')
     test_outputs = NTK.predict(test_inputs)
-    print(len(test_outputs))
-    print(f'test_outputs={test_outputs}')
-    print(len(test_targets))
-    print(f'test_targets={test_targets}')
     loss_NTK_values[exp] = sklearn.metrics.mean_squared_error(test_targets, test_outputs)
-    visualize_NTK(test_outputs, test_dataset, exp)
+    visualize_NTK(test_inputs, test_outputs, exp)
 
-print(f'loss_NTK_values={loss_NTK_values}')
 loss_NTK_values_mean = numpy.mean(loss_NTK_values)
 loss_NTK_values_std = numpy.std(loss_NTK_values)
 
@@ -355,7 +326,7 @@ axs.plot(m_values, loss_NTK_values_mean * numpy.ones(len(m_values)), linestyle='
 axs.plot(m_values, (loss_NTK_values_mean-loss_NTK_values_std) * numpy.ones(len(m_values)), linestyle='-', marker=None, color='#8e0000')
 
 end_time = time.time()
-fig.suptitle(f'N={N} (Time: {end_time-start_time:.0f}s, CPU: {cpu}, DEVICE_TYPE={DEVICE}[{device_name}])\n'
+fig.suptitle(f'Time: {end_time-start_time:.0f}s, CPU: {cpu}, DEVICE_TYPE={DEVICE}[{device_name}]\n'
              f'n_TEST={n_TEST}, NUM_EXP_NN={NUM_EXP_NN}, NUM_EXP_NTK={NUM_EXP_NTK}\n'
              f'ALPHA={ALPHA}, BETA={BETA}\n')
 
@@ -364,7 +335,7 @@ fig_dir = os.path.join(script_dir, 'main_plots/')
 if not os.path.isdir(fig_dir):
     os.makedirs(fig_dir)
 
-fig.savefig(fig_dir + f'N={N}.pdf')
+fig.savefig(fig_dir + f'N=1.pdf')
 matplotlib.pyplot.close(fig)
 
 print('Done!')
