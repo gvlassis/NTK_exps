@@ -37,7 +37,7 @@ class ManualDataset(torch.utils.data.Dataset):
     def __init__(self, X, Y):
         self.len = len(X)
         
-        self.X = torch.tensor(X).reshape((self.len,1)).float()
+        self.X = torch.tensor(X).float()
         self.Y = torch.tensor(Y).float()
 
     def __getitem__(self, i):
@@ -50,7 +50,7 @@ class NeuralNetwork(torch.nn.Module):
     def __init__(self, m):
         super(NeuralNetwork, self).__init__()
         self.m = m
-        self.hidden_layer = torch.nn.Linear(1, m, bias=False)
+        self.hidden_layer = torch.nn.Linear(2, m, bias=False)
         self.output_layer = torch.nn.Linear(m, 1, bias=False)
         self.apply(self._init_weights)
 
@@ -71,12 +71,12 @@ class NeuralNetworkASI(torch.nn.Module):
         super(NeuralNetworkASI, self).__init__()
         self.m = m
         
-        self.hidden_layer1 = torch.nn.Linear(1, m, bias=False)
+        self.hidden_layer1 = torch.nn.Linear(2, m, bias=False)
         self.output_layer1 = torch.nn.Linear(m, 1, bias=False)
         self.hidden_layer1.weight.data.normal_(mean=0.0, std=1)
         self.output_layer1.weight.data.normal_(mean=0.0, std=1)
 
-        self.hidden_layer2 = torch.nn.Linear(1, m, bias=False)
+        self.hidden_layer2 = torch.nn.Linear(2, m, bias=False)
         self.output_layer2 = torch.nn.Linear(m, 1, bias=False)
         with torch.no_grad(): 
             self.hidden_layer2.weight.copy_(self.hidden_layer1.weight)
@@ -110,14 +110,15 @@ def get_loss(model, dataset):
     return loss.item()
 
 def print_1D(axs, inputs, outputs):
-    axs.set_xlabel('x')
+    axs.set_xlabel('theta')
     axs.set_ylabel('y')
     axs.grid()
 
     for i, input in enumerate(inputs):
-        axs.plot(input[0], outputs[i], linestyle='None', marker='o', color='#039be5')
+        (_, theta) = get_polar_from_cart(input[0], input[1])
+        axs.plot(theta, outputs[i], linestyle='None', marker='o', color='#039be5')
   
-def get_loss_and_visualize_1D(model, dataset, m, exp):
+def get_loss_and_visualize_1D(model, dataset, m, exp, train_dataset):
     was_in_training=model.training
     model.train(False)
 
@@ -130,6 +131,15 @@ def get_loss_and_visualize_1D(model, dataset, m, exp):
     fig.suptitle(f'm={m}, exp={exp}')
 
     print_1D(axs, inputs.numpy(), outputs.detach().numpy())
+
+    # Dirty hack
+    (train_inputs, train_targets) = train_dataset[:]
+    train_inputs = train_inputs.numpy()
+    train_targets = train_targets.reshape(-1).numpy()
+    for i, train_input in enumerate(train_inputs):
+        (_, theta) = get_polar_from_cart(train_input[0], train_input[1])
+        axs.plot(theta, train_targets[i], linestyle='None', marker='o', color='#d32f2f')
+    #===========
 
     script_dir = os.path.dirname(__file__)
     fig_dir = os.path.join(script_dir, 'visualization/m={0}/'.format(m))
@@ -251,7 +261,30 @@ def train(model, train_loader, optimizer, train_dataset, m, exp):
 
     model.train(was_in_training)
 
-    return get_loss_and_visualize_1D(model, test_dataset, m, exp)
+    return get_loss_and_visualize_1D(model, test_dataset, m, exp, train_dataset)
+
+def get_polar_from_cart(x,y):
+    
+    r = math.sqrt(x**2+y**2)
+
+    if x==0:
+        if y>0:
+            theta = math.pi/2
+        elif y<0:
+            theta = (3/2)*math.pi
+        else:
+            theta = None 
+    else:
+        if x>0 and y>=0:
+            theta = math.atan(y/x)
+        elif x<0 and y>=0:
+            theta = math.atan(y/x)+math.pi
+        elif x<0 and y<0:
+            theta = math.atan(y/x)+math.pi
+        else:
+            theta = math.atan(y/x)+2*math.pi
+    
+    return r, theta
 
 # Clean working directory
 script_dir = os.path.dirname(__file__)
@@ -271,7 +304,14 @@ else:
 
 start_time = time.time()
 
-test_dataset = ManualDataset(numpy.linspace(-1, 1, n_TEST), numpy.zeros(n_TEST))
+
+thetas = numpy.linspace(0, 4*math.pi, n_TEST)
+xs = 1*numpy.cos(thetas)
+xs = xs.reshape((-1,1))
+ys = 1*numpy.sin(thetas)
+ys = ys.reshape((-1,1))
+points = numpy.concatenate((xs,ys),axis=1)
+test_dataset = ManualDataset(points, numpy.zeros(n_TEST))
 
 fig, axs = matplotlib.pyplot.subplots(figsize=[5, 5], dpi=100, tight_layout=True) # 500x500 plot
 
@@ -279,7 +319,7 @@ m_values = range(1, MAX_WIDTH, STEP_WIDTH)
 loss_nn_values = numpy.empty([len(m_values), NUM_EXP_NN])
 for j, m in enumerate(m_values):
     for exp in range(NUM_EXP_NN):
-        train_dataset = ManualDataset([-0.6, 0.2, 0.8], [2, 0.5, 1])
+        train_dataset = ManualDataset([[1*math.cos(1), 1*math.sin(1)], [1*math.cos(2), 1*math.sin(2)], [1*math.cos(5), 1*math.sin(5)]], [2, 0.5, 1])
         train_loader = torch.utils.data.DataLoader(dataset=train_dataset, batch_size=BATCH_SIZE, shuffle=True)
 
         nn = NeuralNetworkASI(m)
@@ -288,7 +328,7 @@ for j, m in enumerate(m_values):
         # Set up the optimizer for the nn
         optimizer = torch.optim.SGD(nn.parameters(), lr=LR, momentum=MOMENTUM)
 
-        # Run the experiment
+            # Run the experiment
         loss_nn_values[j, exp] = train(nn, train_loader, optimizer, train_dataset, m, exp)
     
 loss_nn_values_mean = numpy.mean(loss_nn_values, axis=1)
@@ -305,7 +345,7 @@ test_targets = test_targets.cpu().numpy() # .numpy() only takes tensor in CPU
 # Train the NTKs
 loss_NTK_values = numpy.empty([NUM_EXP_NTK])
 for exp in range(NUM_EXP_NTK):
-    train_dataset = ManualDataset([-0.6, 0.2, 0.8], [2, 0.5, 1])
+    train_dataset = ManualDataset([[1*math.cos(1), 1*math.sin(1)], [1*math.cos(2), 1*math.sin(2)], [1*math.cos(5), 1*math.sin(5)]], [2, 0.5, 1])
     (train_inputs, train_targets) = train_dataset[:]
     train_inputs = train_inputs.cpu().numpy() # .numpy() only takes tensor in CPU
     train_targets = train_targets.cpu().numpy() # .numpy() only takes tensor in CPU
