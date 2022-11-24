@@ -16,12 +16,12 @@ import shutil
 
 # Hyperparameters
 n_TEST = 200 
-NUM_EXP_NN = 1 # The number of experiments for each (N,n_train) tuple. In each experiment we use a new training dataset but the same testing dataset (V remains the same)
-NUM_EXP_NTK = 1
+NUM_EXP_NN = 20 # The number of experiments for each (N,n_train) tuple. In each experiment we use a new training dataset but the same testing dataset (V remains the same)
+NUM_EXP_NTK = 5
 DEVICE_TYPE = 'cpu'
 DEVICE = torch.device(DEVICE_TYPE)
 loss_function = torch.nn.MSELoss()
-MAX_WIDTH = 2000
+MAX_WIDTH = 10000
 STEP_WIDTH = 500
 
 # Hyperparameters
@@ -319,7 +319,7 @@ m_values = range(1, MAX_WIDTH, STEP_WIDTH)
 loss_nn_values = numpy.empty([len(m_values), NUM_EXP_NN])
 for j, m in enumerate(m_values):
     for exp in range(NUM_EXP_NN):
-        train_dataset = ManualDataset([[1*math.cos(1), 1*math.sin(1)], [1*math.cos(2), 1*math.sin(2)], [1*math.cos(5), 1*math.sin(5)]], [2, 0.5, 1])
+        train_dataset = ManualDataset([[1*math.cos(0), 1*math.sin(0)], [1*math.cos(math.pi), 1*math.sin(math.pi)], [1*math.cos(math.pi*2/3), 1*math.sin(math.pi*2/3)]], [-1, 2, 1/2])
         train_loader = torch.utils.data.DataLoader(dataset=train_dataset, batch_size=BATCH_SIZE, shuffle=True)
 
         nn = NeuralNetworkASI(m)
@@ -345,7 +345,7 @@ test_targets = test_targets.cpu().numpy() # .numpy() only takes tensor in CPU
 # Train the NTKs
 loss_NTK_values = numpy.empty([NUM_EXP_NTK])
 for exp in range(NUM_EXP_NTK):
-    train_dataset = ManualDataset([[1*math.cos(1), 1*math.sin(1)], [1*math.cos(2), 1*math.sin(2)], [1*math.cos(5), 1*math.sin(5)]], [2, 0.5, 1])
+    train_dataset = ManualDataset([[1*math.cos(0), 1*math.sin(0)], [1*math.cos(math.pi), 1*math.sin(math.pi)], [1*math.cos(math.pi*2/3), 1*math.sin(math.pi*2/3)]], [-1, 2, 1/2])
     (train_inputs, train_targets) = train_dataset[:]
     train_inputs = train_inputs.cpu().numpy() # .numpy() only takes tensor in CPU
     train_targets = train_targets.cpu().numpy() # .numpy() only takes tensor in CPU
