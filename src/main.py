@@ -16,11 +16,11 @@ import shutil
 
 # Parameters
 n_TEST = 200
-NUM_EXP = 20
+NUM_EXP = 2
 DEVICE_TYPE = 'cpu'
 DEVICE = torch.device(DEVICE_TYPE)
 loss_function = torch.nn.MSELoss()
-MAX_WIDTH_EXPON = 13
+MAX_WIDTH_EXPON = 3
 
 # Hyperparameters
 BATCH_SIZE = 1
@@ -351,7 +351,8 @@ axs.set_xscale('log', base=2)
 axs.errorbar(m_values, nn_loss_mean, nn_loss_std, linestyle='-', marker='o', color=BLUE, ecolor=RED, capsize=5)
 axs.plot(m_values, NTK_loss*numpy.ones(len(m_values)), linestyle='-', marker='o', color=GREEN)
 
-fig.savefig('l2_loss.pdf')
+script_dir = os.path.dirname(__file__)
+fig.savefig(script_dir+'/l2_loss.pdf')
 matplotlib.pyplot.close(fig)
 
 print('Done!')
