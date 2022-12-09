@@ -100,6 +100,35 @@ class NeuralNetworkASI(torch.nn.Module):
 
         return output
 
+class PiecewiseLinearFunction:
+    def __init__(self, xs, ys):
+        self.changes = len(xs)-1
+
+        self.xs = numpy.array(xs)
+        inds = self.xs.argsort()
+        self.xs = self.xs[inds]
+
+        self.ys = numpy.array(ys)[inds]
+
+        self.ws = numpy.empty((self.changes,2))
+        for i in range(0,self.changes):
+            p1 = [self.xs[i],self.ys[i]]
+            p2 = [self.xs[i+1],self.ys[i+1]]
+            a,b = get_linear_weights(p1,p2)
+            self.ws[i] = [a,b]
+    
+    def get_output(self, input):
+        if input<self.xs[0]:
+            output = self.ws[0,0]*input+self.ws[0,1]
+            return output
+        for i in range(0,self.changes): 
+            if input<self.xs[i+1]:
+                output = self.ws[i,0]*input+self.ws[i,1]
+                return output
+        #input>self.xs[-1]=self.xs[changes]
+        output = self.ws[-1,0]*input+self.ws[-1,1]
+        return output
+
 def get_loss(model, dataset):
     was_in_training=model.training
     model.train(False)
@@ -148,7 +177,7 @@ def has_converged(a):
 
     return False
 
-def train(model, optimizer, train_dataset, m, exp, test_inputs, test_outputs_NTK):
+def train(model, optimizer, train_dataset, m, exp, test_dataset, test_outputs_NTK):
     was_in_training = model.training
     model.train(True)
 
@@ -156,6 +185,8 @@ def train(model, optimizer, train_dataset, m, exp, test_inputs, test_outputs_NTK
     (train_inputs, train_targets) = train_dataset[:]
     train_inputs = train_inputs.cpu().numpy() # .numpy() only takes tensor in CPU
     train_targets = train_targets.cpu().numpy() # .numpy() only takes tensor in CPU
+
+    (test_inputs,_) = test_dataset[:]
 
     epoch_values = [] # We do not know when the training will finish
     train_loss_values = [] # train_loss_values[i]=The train loss in the BEGINNING of the i-th epoch
@@ -253,11 +284,18 @@ def get_points_from_thetas(thetas):
 
     return points 
 
+def get_linear_weights(p1,p2):
+    (x1,y1) = p1
+    (x2,y2) = p2
+
+    a = (y1-y2)/(x1-x2)
+    b = y1 - a*x1
+ 
+    return a,b
+
 # Clean working directory
 script_dir = os.path.dirname(__file__)
 dir_to_clean = os.path.join(script_dir, 'training_curves/')
-if os.path.isdir(dir_to_clean): shutil.rmtree(dir_to_clean)
-dir_to_clean = os.path.join(script_dir, 'interpolation/')
 if os.path.isdir(dir_to_clean): shutil.rmtree(dir_to_clean)
  
 if DEVICE_TYPE == 'cuda':
@@ -266,16 +304,15 @@ else:
     device_name = ''
 
 train_thetas = [0, math.pi, math.pi*2/3]
-train_dataset = ManualDataset(get_points_from_thetas(train_thetas), [-1, 2, 1/2])
-(train_inputs, train_targets) = train_dataset[:]
+train_inputs = get_points_from_thetas(train_thetas)
+train_targets = [-1, 2, 1/2]
+train_dataset = ManualDataset(train_inputs, train_targets)
 
 test_thetas = numpy.linspace(0, 4*math.pi, n_TEST)
-test_dataset = ManualDataset(get_points_from_thetas(test_thetas), numpy.zeros(n_TEST))
-(test_inputs,_) = test_dataset[:]
-
-interp_thetas = [0.5, 4.5, 5.5]
-interp_dataset = ManualDataset(get_points_from_thetas(interp_thetas), numpy.zeros(len(interp_thetas)))
-(interp_inputs,_) = interp_dataset[:]
+test_inputs = get_points_from_thetas(test_thetas)
+f = PiecewiseLinearFunction(train_thetas,train_targets)
+test_targets = numpy.vectorize(f.get_output)(test_thetas)
+test_dataset = ManualDataset(test_inputs, test_targets)
 
 # Train the NTK
 NTK = sklearn.kernel_ridge.KernelRidge(alpha=1e-10, kernel=K)
@@ -283,12 +320,12 @@ print(f'Training NTK')
 NTK.fit(train_inputs, train_targets)
 print(f'Infering NTK')
 test_outputs_NTK = NTK.predict(test_inputs)
-interp_outputs_NTK = NTK.predict(interp_inputs)
+NTK_loss = sklearn.metrics.mean_squared_error(test_targets, test_outputs_NTK)
 
 # Train the nns
 m_exponents = range(1, MAX_WIDTH_EXPON+1)
 m_values = [2**exp for exp in m_exponents]
-interp_outputs_nns = numpy.empty([len(m_exponents), NUM_EXP, len(interp_dataset)])
+nn_loss = numpy.empty([len(m_values), NUM_EXP])
 for i, m in enumerate(m_values):
     for exp in range(NUM_EXP):
         nn = NeuralNetworkASI(m)
@@ -298,32 +335,23 @@ for i, m in enumerate(m_values):
         optimizer = torch.optim.SGD(nn.parameters(), lr=LR, momentum=MOMENTUM)
 
         # Train the nn
-        train(nn, optimizer, train_dataset, m, exp, test_inputs, test_outputs_NTK)
+        train(nn, optimizer, train_dataset, m, exp, test_dataset, test_outputs_NTK)
 
-        # Store interpolation for nn 
-        interp_outputs_nns[i,exp] = nn(interp_inputs).reshape(-1).cpu().detach().numpy() 
+        nn_loss[i,exp] = get_loss(nn, test_dataset)
 
-interp_outputs_nns_mean = numpy.mean(interp_outputs_nns, axis=1)
-interp_outputs_nns_std = numpy.std(interp_outputs_nns, axis=1)
+nn_loss_mean = numpy.mean(nn_loss, axis=1)
+nn_loss_std = numpy.std(nn_loss, axis=1)
 
-for i, theta in enumerate(interp_thetas):
-    fig, axs = matplotlib.pyplot.subplots(figsize=[10, 10], dpi=100, tight_layout=True)
-    fig.suptitle(f'theta={theta}')
-    axs.set_xlabel('m')
-    axs.set_ylabel('output')
-    axs.grid()
-    axs.set_xscale('log', base=2)
-    
-    axs.errorbar(m_values, interp_outputs_nns_mean[:,i], interp_outputs_nns_std[:,i], linestyle='-', marker='o', color=BLUE, ecolor=RED, capsize=5)
-    axs.plot(m_values, interp_outputs_NTK[i]*numpy.ones(len(m_values)), linestyle='-', marker='o', color=GREEN)
+fig, axs = matplotlib.pyplot.subplots(figsize=[10, 10], dpi=100, tight_layout=True)
+axs.set_xlabel('m')
+axs.set_ylabel('l2_loss')
+axs.grid()
+axs.set_xscale('log', base=2)
 
-    script_dir = os.path.dirname(__file__)
-    fig_dir = os.path.join(script_dir, 'interpolation/')
-    if not os.path.isdir(fig_dir):
-        os.makedirs(fig_dir)
+axs.errorbar(m_values, nn_loss_mean, nn_loss_std, linestyle='-', marker='o', color=BLUE, ecolor=RED, capsize=5)
+axs.plot(m_values, NTK_loss*numpy.ones(len(m_values)), linestyle='-', marker='o', color=GREEN)
 
-    fig.savefig(fig_dir + f'theta={theta}.pdf')
-    matplotlib.pyplot.close(fig)
+fig.savefig('l2_loss.pdf')
+matplotlib.pyplot.close(fig)
 
 print('Done!')
-
