@@ -15,12 +15,14 @@ import math
 import shutil
 
 # Parameters
+N = 2
+n_TRAIN = 5
 n_TEST = 200
-NUM_EXP = 2
+NUM_EXP = 20
 DEVICE_TYPE = 'cpu'
 DEVICE = torch.device(DEVICE_TYPE)
 loss_function = torch.nn.MSELoss()
-MAX_WIDTH_EXPON = 3
+MAX_WIDTH_EXPON = 13
 
 # Hyperparameters
 BATCH_SIZE = 1
@@ -36,12 +38,23 @@ RED = '#d32f2f'
 GREEN = '#7cb342'
 BLUE = '#039be5'
 
-class ManualDataset(torch.utils.data.Dataset):
-    def __init__(self, X, Y):
-        self.len = len(X)
+class SphereDataset(torch.utils.data.Dataset):
+    def __init__(self, distribution, n, V = None):
+        self.dim = distribution.event_shape
+        self.len = n
+
+        if V is None:
+            self.V = distribution.sample()
+            self.V = self.V / torch.linalg.norm(self.V)
+        else:
+            self.V = V
         
-        self.X = torch.tensor(X).float()
-        self.Y = torch.tensor(Y).float()
+        self.X = distribution.sample((n,))
+        line_norms = torch.linalg.norm(self.X,dim=1)
+        line_norms_T = torch.reshape(line_norms,(n,1))
+        self.X = self.X/line_norms_T
+  
+        self.Y = torch.matmul(self.X,self.V)
 
     def __getitem__(self, i):
         return self.X[i], self.Y[i]
@@ -295,30 +308,27 @@ def get_linear_weights(p1,p2):
 
 # Clean working directory
 script_dir = os.path.dirname(__file__)
-dir_to_clean = os.path.join(script_dir, 'training_curves/')
+dir_to_clean = os.path.join(script_dir, '../output/')
 if os.path.isdir(dir_to_clean): shutil.rmtree(dir_to_clean)
- 
-if DEVICE_TYPE == 'cuda':
-    device_name = torch.cuda.get_device_name(DEVICE)
-else:
-    device_name = ''
 
-train_thetas = [0, math.pi, math.pi*2/3]
-train_inputs = get_points_from_thetas(train_thetas)
-train_targets = [-1, 2, 1/2]
-train_dataset = ManualDataset(train_inputs, train_targets)
+distribution = torch.distributions.multivariate_normal.MultivariateNormal(torch.zeros(N,device=DEVICE), torch.eye(N,device=DEVICE))
 
-test_thetas = numpy.linspace(0, 4*math.pi, n_TEST)
-test_inputs = get_points_from_thetas(test_thetas)
-f = PiecewiseLinearFunction(train_thetas,train_targets)
-test_targets = numpy.vectorize(f.get_output)(test_thetas)
-test_dataset = ManualDataset(test_inputs, test_targets)
+test_dataset = SphereDataset(distribution, n_TEST)
+(test_inputs, test_targets) = test_dataset[:]
+test_inputs = test_inputs.cpu().numpy() # .numpy() only takes tensor in CPU
+test_targets = test_targets.cpu().numpy() # .numpy() only takes tensor in CPU
+
+train_dataset = SphereDataset(distribution, n_TRAIN, test_dataset.V)
 
 # Train the NTK
+(train_inputs, train_targets) = train_dataset[:]
+train_inputs = train_inputs.cpu().numpy() # .numpy() only takes tensor in CPU
+train_targets = train_targets.cpu().numpy() # .numpy() only takes tensor in CPU
+
 NTK = sklearn.kernel_ridge.KernelRidge(alpha=1e-10, kernel=K)
-print(f'Training NTK')
+print('Training NTK')
 NTK.fit(train_inputs, train_targets)
-print(f'Infering NTK')
+print('Infering NTK')
 test_outputs_NTK = NTK.predict(test_inputs)
 NTK_loss = sklearn.metrics.mean_squared_error(test_targets, test_outputs_NTK)
 
