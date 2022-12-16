@@ -238,7 +238,7 @@ def train(model, optimizer, train_dataset, m, exp, test_dataset, test_outputs_NT
     print_1D(axs[1], train_inputs, train_targets, RED)
 
     script_dir = os.path.dirname(__file__)
-    fig_dir = os.path.join(script_dir, 'training_curves/m={0}/'.format(m))
+    fig_dir = os.path.join(script_dir, '../output/training_curves/m={0}/'.format(m))
     if not os.path.isdir(fig_dir):
         os.makedirs(fig_dir)
 
@@ -352,7 +352,7 @@ axs.errorbar(m_values, nn_loss_mean, nn_loss_std, linestyle='-', marker='o', col
 axs.plot(m_values, NTK_loss*numpy.ones(len(m_values)), linestyle='-', marker='o', color=GREEN)
 
 script_dir = os.path.dirname(__file__)
-fig.savefig(script_dir+'/l2_loss.pdf')
+fig.savefig(script_dir+'/../output/l2_loss.pdf')
 matplotlib.pyplot.close(fig)
 
 print('Done!')

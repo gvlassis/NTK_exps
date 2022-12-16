@@ -1,3 +1,2 @@
 *.DS_Store
-src/training_curves
-src/l2_loss.pdf
+output/*
