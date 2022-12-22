@@ -5,7 +5,6 @@ import numpy
 import torch
 import matplotlib.pyplot
 import time
-import cpuinfo
 import os
 import sklearn.svm
 import sklearn.linear_model
@@ -16,7 +15,7 @@ import shutil
 
 # Parameters
 N = 2
-n_TRAIN = 5
+n_TRAIN = 10
 n_TEST = 200
 NUM_EXP = 20
 DEVICE_TYPE = 'cpu'
