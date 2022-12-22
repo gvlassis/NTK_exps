@@ -112,35 +112,6 @@ class NeuralNetworkASI(torch.nn.Module):
 
         return output
 
-class PiecewiseLinearFunction:
-    def __init__(self, xs, ys):
-        self.changes = len(xs)-1
-
-        self.xs = numpy.array(xs)
-        inds = self.xs.argsort()
-        self.xs = self.xs[inds]
-
-        self.ys = numpy.array(ys)[inds]
-
-        self.ws = numpy.empty((self.changes,2))
-        for i in range(0,self.changes):
-            p1 = [self.xs[i],self.ys[i]]
-            p2 = [self.xs[i+1],self.ys[i+1]]
-            a,b = get_linear_weights(p1,p2)
-            self.ws[i] = [a,b]
-    
-    def get_output(self, input):
-        if input<self.xs[0]:
-            output = self.ws[0,0]*input+self.ws[0,1]
-            return output
-        for i in range(0,self.changes): 
-            if input<self.xs[i+1]:
-                output = self.ws[i,0]*input+self.ws[i,1]
-                return output
-        #input>self.xs[-1]=self.xs[changes]
-        output = self.ws[-1,0]*input+self.ws[-1,1]
-        return output
-
 def get_loss(model, dataset):
     was_in_training=model.training
     model.train(False)
@@ -230,24 +201,14 @@ def train(model, optimizer, train_dataset, m, exp, test_dataset, test_outputs_NT
         epoch += 1
 
     # Create training curves
-    fig, axs = matplotlib.pyplot.subplots(ncols=2, figsize=[20, 10], dpi=100, tight_layout=True)
+    fig, axs = matplotlib.pyplot.subplots(figsize=[10, 10], dpi=100, tight_layout=True)
     fig.suptitle(f'm={m}, exp={exp}')
 
-    axs[0].plot(epoch_values, train_loss_values, linestyle='-', marker='o', color=BLUE)
-    axs[0].set_xlabel('epoch')
-    axs[0].set_ylabel('train_loss')
-    axs[0].grid()
-    axs[0].set_yscale('log')
-
-    axs[1].set_xlabel('theta')
-    axs[1].set_ylabel('y')
-    axs[1].grid()
-    model.train(False)
-    test_outputs = model(test_inputs) 
-    test_outputs = test_outputs.reshape(-1) # Otherwise, test_outputs.shape=torch.Size([n, 1])
-    print_1D(axs[1], test_inputs, test_outputs.cpu().detach().numpy(), BLUE)
-    print_1D(axs[1], test_inputs, test_outputs_NTK, GREEN)
-    print_1D(axs[1], train_inputs, train_targets, RED)
+    axs.plot(epoch_values, train_loss_values, linestyle='-', marker='o', color=BLUE)
+    axs.set_xlabel('epoch')
+    axs.set_ylabel('train_loss')
+    axs.grid()
+    axs.set_yscale('log')
 
     script_dir = os.path.dirname(__file__)
     fig_dir = os.path.join(script_dir, '../output/training_curves/m={0}/'.format(m))
@@ -258,52 +219,6 @@ def train(model, optimizer, train_dataset, m, exp, test_dataset, test_outputs_NT
     matplotlib.pyplot.close(fig)
 
     model.train(was_in_training)
-
-def print_1D(axs, inputs, outputs, color):
-    for i, input in enumerate(inputs):
-        (_, theta) = get_polar_from_cart(input[0], input[1])
-        axs.plot(theta, outputs[i], linestyle='None', marker='o', color=color)
-
-def get_polar_from_cart(x,y):
-    r = math.sqrt(x**2+y**2)
-
-    if x==0:
-        if y>0:
-            theta = math.pi/2
-        elif y<0:
-            theta = (3/2)*math.pi
-        else:
-            theta = None 
-    else:
-        if x>0 and y>=0:
-            theta = math.atan(y/x)
-        elif x<0 and y>=0:
-            theta = math.atan(y/x)+math.pi
-        elif x<0 and y<0:
-            theta = math.atan(y/x)+math.pi
-        else:
-            theta = math.atan(y/x)+2*math.pi
-    
-    return r, theta
-
-def get_points_from_thetas(thetas): 
-    xs = 1*numpy.cos(thetas)
-    xs = xs.reshape((-1,1))
-    ys = 1*numpy.sin(thetas)
-    ys = ys.reshape((-1,1))
-
-    points = numpy.concatenate((xs,ys),axis=1)
-
-    return points 
-
-def get_linear_weights(p1,p2):
-    (x1,y1) = p1
-    (x2,y2) = p2
-
-    a = (y1-y2)/(x1-x2)
-    b = y1 - a*x1
- 
-    return a,b
 
 # Clean working directory
 script_dir = os.path.dirname(__file__)
