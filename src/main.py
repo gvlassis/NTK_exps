@@ -14,8 +14,8 @@ import math
 import shutil
 
 # Parameters
-N = 32
-n_TRAIN = 1000
+N = 16
+n_TRAIN = 40
 n_TEST = 200
 NUM_EXP = 20
 DEVICE_TYPE = 'cpu'
@@ -24,7 +24,7 @@ loss_function = torch.nn.MSELoss()
 MAX_WIDTH_EXPON = 13
 
 # Hyperparameters
-BATCH_SIZE = 50
+BATCH_SIZE = 1
 LR = 0.01
 MOMENTUM = 0.0
 
@@ -54,6 +54,9 @@ class SphereDataset(torch.utils.data.Dataset):
         self.X = self.X/line_norms_T
   
         self.Y = torch.matmul(self.X,self.V)
+
+        self.Y = self.Y >= 0 
+        self.Y = self.Y.float()
 
     def __getitem__(self, i):
         return self.X[i], self.Y[i]
