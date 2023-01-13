@@ -14,8 +14,8 @@ import math
 import shutil
 
 # Parameters
-N = 2
-n_TRAIN = 10
+N = 32
+n_TRAIN = 1000
 n_TEST = 200
 NUM_EXP = 20
 DEVICE_TYPE = 'cpu'
@@ -24,7 +24,7 @@ loss_function = torch.nn.MSELoss()
 MAX_WIDTH_EXPON = 13
 
 # Hyperparameters
-BATCH_SIZE = 1
+BATCH_SIZE = 50
 LR = 0.01
 MOMENTUM = 0.0
 
@@ -65,7 +65,7 @@ class NeuralNetwork(torch.nn.Module):
     def __init__(self, m):
         super(NeuralNetwork, self).__init__()
         self.m = m
-        self.hidden_layer = torch.nn.Linear(2, m, bias=False)
+        self.hidden_layer = torch.nn.Linear(N, m, bias=False)
         self.output_layer = torch.nn.Linear(m, 1, bias=False)
         self.apply(self._init_weights)
 
@@ -86,12 +86,12 @@ class NeuralNetworkASI(torch.nn.Module):
         super(NeuralNetworkASI, self).__init__()
         self.m = m
         
-        self.hidden_layer1 = torch.nn.Linear(2, m, bias=False)
+        self.hidden_layer1 = torch.nn.Linear(N, m, bias=False)
         self.output_layer1 = torch.nn.Linear(m, 1, bias=False)
         self.hidden_layer1.weight.data.normal_(mean=0.0, std=1)
         self.output_layer1.weight.data.normal_(mean=0.0, std=1)
 
-        self.hidden_layer2 = torch.nn.Linear(2, m, bias=False)
+        self.hidden_layer2 = torch.nn.Linear(N, m, bias=False)
         self.output_layer2 = torch.nn.Linear(m, 1, bias=False)
         with torch.no_grad(): 
             self.hidden_layer2.weight.copy_(self.hidden_layer1.weight)
