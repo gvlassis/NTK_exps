@@ -14,19 +14,20 @@ import math
 import shutil
 
 # Parameters
-N = 16
-n_TRAIN = 40
+N = 8
+n_TRAIN = 100
 n_TEST = 200
 NUM_EXP = 20
 DEVICE_TYPE = 'cpu'
 DEVICE = torch.device(DEVICE_TYPE)
 loss_function = torch.nn.MSELoss()
-MAX_WIDTH_EXPON = 13
+MIN_WIDTH_EXPON = 6
+MAX_WIDTH_EXPON = 15
 
 # Hyperparameters
 BATCH_SIZE = 1
 LR = 0.01
-MOMENTUM = 0.0
+MOMENTUM = 0.00
 
 # Stopping criteria 
 ALPHA = 4
@@ -250,7 +251,7 @@ test_outputs_NTK = NTK.predict(test_inputs)
 NTK_loss = sklearn.metrics.mean_squared_error(test_targets, test_outputs_NTK)
 
 # Train the nns
-m_exponents = range(1, MAX_WIDTH_EXPON+1)
+m_exponents = range(MIN_WIDTH_EXPON, MAX_WIDTH_EXPON+1)
 m_values = [2**exp for exp in m_exponents]
 nn_loss = numpy.empty([len(m_values), NUM_EXP])
 for i, m in enumerate(m_values):
