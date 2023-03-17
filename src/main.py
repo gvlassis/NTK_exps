@@ -15,14 +15,14 @@ import shutil
 
 # Parameters
 N = 8
-n_TRAIN = 40
+n_TRAIN = 130
 n_TEST = 200
 NUM_EXP = 20
 DEVICE_TYPE = 'cpu'
 DEVICE = torch.device(DEVICE_TYPE)
 loss_function = torch.nn.MSELoss()
 MIN_WIDTH_EXPON = 6
-MAX_WIDTH_EXPON = 16
+MAX_WIDTH_EXPON = 14
 
 # Hyperparameters
 BATCH_SIZE = n_TRAIN
@@ -34,9 +34,10 @@ ALPHA = 4
 BETA = -0.2
 
 # Colors
-RED = '#d32f2f'
-GREEN = '#7cb342'
-BLUE = '#039be5'
+GREEN = '#388E3C'
+LIGHT_GREEN = '#8BC34A'
+INDIGO = '#3F51B5'
+BLUE = '#2196F3'
 
 class SphereDataset(torch.utils.data.Dataset):
     def __init__(self, distribution, n, V = None):
@@ -192,14 +193,12 @@ def has_converged(a):
 
     return False
 
-def train(model, optimizer, train_dataset, m, exp, test_dataset, test_outputs_NTK):
+def train(model, optimizer, train_dataset, m, exp):
     was_in_training = model.training
     model.train(True)
 
     train_loader = torch.utils.data.DataLoader(dataset=train_dataset, batch_size=BATCH_SIZE, shuffle=True)
     (train_inputs, train_targets) = train_dataset[:]
-
-    (test_inputs,_) = test_dataset[:]
 
     epoch_values = [] # We do not know when the training will finish
     train_loss_values = [] # train_loss_values[i]=The train loss in the BEGINNING of the i-th epoch
@@ -260,25 +259,27 @@ distribution = torch.distributions.multivariate_normal.MultivariateNormal(torch.
 test_dataset = SphereDataset(distribution, n_TEST)
 (test_inputs, test_targets) = test_dataset[:]
 
-train_dataset = SphereDataset(distribution, n_TRAIN, test_dataset.V)
-
-# Train the NTK
-(train_inputs, train_targets) = train_dataset[:]
-
-NTK = sklearn.kernel_ridge.KernelRidge(alpha=1e-10, kernel=K)
-print('Training NTK')
-NTK.fit(train_inputs.cpu().numpy(), train_targets.cpu().numpy()) # .numpy() only takes tensor in CPU
-print('Infering NTK')
-test_outputs_NTK = NTK.predict(test_inputs.cpu().numpy()) # .numpy() only takes tensor in CPU
-NTK_loss = sklearn.metrics.mean_squared_error(test_targets.cpu().numpy(), test_outputs_NTK) # .numpy() only takes tensor in CPU
-
-# Train the nns
+NTK_loss = numpy.empty(NUM_EXP)
 m_exponents = range(MIN_WIDTH_EXPON, MAX_WIDTH_EXPON+1)
 m_values = [2**exp for exp in m_exponents]
-nn_loss = numpy.empty([len(m_values), NUM_EXP])
-kern_diff = numpy.empty([len(m_values), NUM_EXP])
-for i, m in enumerate(m_values):
-    for exp in range(NUM_EXP):
+nn_loss = numpy.empty([NUM_EXP, len(m_values)])
+kern_diff = numpy.empty([NUM_EXP, len(m_values)])
+for exp in range(NUM_EXP):
+    # Sample new train_dataset
+    train_dataset = SphereDataset(distribution, n_TRAIN, test_dataset.V)
+
+    # Train the NTK
+    (train_inputs, train_targets) = train_dataset[:]
+
+    NTK = sklearn.kernel_ridge.KernelRidge(alpha=1e-10, kernel=K)
+    print(f'Training NTK, exp={exp}')
+    NTK.fit(train_inputs.cpu().numpy(), train_targets.cpu().numpy()) # .numpy() only takes tensor in CPU
+    print(f'Infering NTK, exp={exp}')
+    test_outputs_NTK = NTK.predict(test_inputs.cpu().numpy()) # .numpy() only takes tensor in CPU
+    NTK_loss[exp] = sklearn.metrics.mean_squared_error(test_targets.cpu().numpy(), test_outputs_NTK) # .numpy() only takes tensor in CPU
+
+    # Train the nns
+    for m_index, m in enumerate(m_values):
         nn = NeuralNetworkASI(m)
         nn.to(DEVICE)
 
@@ -288,16 +289,18 @@ for i, m in enumerate(m_values):
         Kw0_matrix = Kw_matrix(train_inputs, nn)
         
         # Train the nn
-        train(nn, optimizer, train_dataset, m, exp, test_dataset, test_outputs_NTK)
+        train(nn, optimizer, train_dataset, m, exp)
 
-        nn_loss[i,exp] = get_loss(nn, test_dataset)
+        nn_loss[exp,m_index] = get_loss(nn, test_dataset)
 
         Kwconv_matrix = Kw_matrix(train_inputs,nn)
-        kern_diff[i,exp] = torch.linalg.matrix_norm(Kwconv_matrix-Kw0_matrix, ord=2)
+        kern_diff[exp,m_index] = torch.linalg.matrix_norm(Kwconv_matrix-Kw0_matrix, ord=2)
 
 # l2_loss plot
-nn_loss_mean = numpy.mean(nn_loss, axis=1)
-nn_loss_std = numpy.std(nn_loss, axis=1)
+NTK_loss_mean = numpy.mean(NTK_loss)
+NTK_loss_std = numpy.std(NTK_loss)
+nn_loss_mean = numpy.mean(nn_loss, axis=0)
+nn_loss_std = numpy.std(nn_loss, axis=0)
 
 fig, axs = matplotlib.pyplot.subplots(figsize=[10, 10], dpi=100, tight_layout=True)
 axs.set_xlabel('m')
@@ -305,8 +308,8 @@ axs.set_ylabel('l2_loss')
 axs.grid()
 axs.set_xscale('log', base=2)
 
-axs.errorbar(m_values, nn_loss_mean, nn_loss_std, linestyle='-', marker='o', color=BLUE, ecolor=RED, capsize=5)
-axs.plot(m_values, NTK_loss*numpy.ones(len(m_values)), linestyle='-', marker='o', color=GREEN)
+axs.errorbar(m_values, NTK_loss_mean*numpy.ones(len(m_values)), NTK_loss_std*numpy.ones(len(m_values)), linestyle='-', marker='o', color=GREEN, ecolor=LIGHT_GREEN, capsize=7)
+axs.errorbar(m_values, nn_loss_mean, nn_loss_std, linestyle='-', marker='o', color=INDIGO, ecolor=BLUE, capsize=7)
 
 script_dir = os.path.dirname(__file__)
 fig.savefig(script_dir+'/../output/l2_loss.pdf')
@@ -322,7 +325,7 @@ axs.set_ylabel('kern_diff')
 axs.grid()
 axs.set_xscale('log', base=2)
 
-axs.errorbar(m_values, kern_diff_mean, kern_diff_std, linestyle='-', marker='o', color=BLUE, ecolor=RED, capsize=5)
+axs.errorbar(m_values, kern_diff_mean, kern_diff_std, linestyle='-', marker='o', color=INDIGO, ecolor=BLUE, capsize=7)
 
 script_dir = os.path.dirname(__file__)
 fig.savefig(script_dir+'/../output/kern_diff.pdf')
