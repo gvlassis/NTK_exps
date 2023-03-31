@@ -1,11 +1,11 @@
 #!/usr/bin/env bash
 
 #SBATCH --job-name=NTK_exps
-#SBATCH --ntasks=20
+#SBATCH --ntasks=40
 #SBATCH --cpus-per-task=8
 #SBATCH --mem-per-cpu=2G
-#SBATCH --time=6:00:00
-#BATCH --qos=6hours
+#SBATCH --qos=1week
+#SBATCH --time=4-00:00:00
 
 timestamp="$(date "+%H.%M.%S_%d.%m.%Y")"
 p="out/${timestamp}"
@@ -15,7 +15,7 @@ mkdir -p "${p}"
 
 for exp in {0..19}
 do
-    srun --nodes 1 --ntasks 1 --cpus-per-task="${SLURM_CPUS_PER_TASK}" --mem-per-cpu=2G ~/.local/bin/micromamba run -p ./env python src/run_exp.py -p "${p}/exp${exp}" "${p}/test_dataset.json" &
+    srun -q 1day --nodes 1 --ntasks 1 --cpus-per-task="${SLURM_CPUS_PER_TASK}" --mem-per-cpu=2G ~/.local/bin/micromamba run -p ./env python src/run_exp.py -p "${p}/exp${exp}" "${p}/test_dataset.json" &
 done
 wait
 
