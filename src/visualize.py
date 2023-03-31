@@ -47,8 +47,8 @@ fig.savefig(args.p+f"/l2_loss.pdf")
 matplotlib.pyplot.close(fig)
 
 # kern_diff plot
-kern_diff_mean = numpy.mean(kern_diff, axis=1)
-kern_diff_std = numpy.std(kern_diff, axis=1)
+kern_diff_mean = numpy.mean(kern_diff, axis=0)
+kern_diff_std = numpy.std(kern_diff, axis=0)
 
 fig, axs = matplotlib.pyplot.subplots(figsize=[10, 10], dpi=100, tight_layout=True)
 axs.set_xlabel('m')
