@@ -55,6 +55,24 @@ class ContinuousSphereDataset(HyperplaneDataset):
         
         return cls(distribution, n, V)
 
+class UniformDataset(HyperplaneDataset):
+    def __init__(self, distribution, n, V):
+        X = distribution.sample((n,))
+  
+        Y = torch.matmul(X,V)
+
+        Y = Y >= 0 
+        Y = Y.float()
+
+        super().__init__(V,X,Y)
+
+    @classmethod
+    def create_without_V(cls, distribution, n):
+        V = distribution.sample()
+        V = V / torch.linalg.norm(V)
+        
+        return cls(distribution, n, V)
+
 class HyperplaneDatasetEncoder(json.JSONEncoder):
     def default(self, dataset):
             return {"V":dataset.V.tolist(), "X":dataset.X.tolist(), "Y":dataset.Y.tolist()}

@@ -31,7 +31,6 @@ parser.add_argument("-b", "--beta", metavar="FLOAT", help="The beta parameter fo
 args=parser.parse_args()
 
 if args.batch_size==0: args.batch_size=args.n
-print(args.batch_size)
 
 with open(args.test_dataset_path,"r") as test_dataset_json:
     test_dataset=json.load(test_dataset_json, object_hook=datasets.decode_hyperplane_dataset)
@@ -52,8 +51,9 @@ NTK_loss = sklearn.metrics.mean_squared_error(test_targets.cpu().numpy(), test_o
 # Train the neural networks
 m_exponents = range(args.min_m_expon, args.max_m_expon+1)
 m_values = [2**exp for exp in m_exponents]
-nn_loss=[]
-kern_diff=[]
+nn_loss = []
+kern_diff = []
+v_maxes = []
 for m_index, m in enumerate(m_values):
     nn = models.NeuralNetworkASI(args.N, m)
     nn.to(args.D)
@@ -68,8 +68,12 @@ for m_index, m in enumerate(m_values):
 
     nn_loss.append(models.get_loss(nn, test_dataset))
 
-    Kwconv_matrix = models.Kw_matrix(train_inputs,nn)
+    Kwconv_matrix = models.Kw_matrix(train_inputs, nn)
     kern_diff.append(torch.linalg.matrix_norm(Kwconv_matrix-Kw0_matrix, ord=2).item())
+
+    _, V = torch.linalg.eigh(models.Kw_matrix(test_inputs, nn))
+    v_max = V[:,-1]
+    v_maxes.append(v_max.tolist())
 
 # Serialization
 os.makedirs(args.p, exist_ok=True)
@@ -81,5 +85,7 @@ with open(args.p+f"/nn_loss.json","w") as nn_loss_json:
     json.dump(nn_loss, nn_loss_json, indent=4)
 with open(args.p+f"/kern_diff.json","w") as kern_diff_json:
     json.dump(kern_diff, kern_diff_json, indent=4)
+with open(args.p+f"/v_maxes.json","w") as v_maxes_json:
+    json.dump(v_maxes, v_maxes_json, indent=4)
 
 print("🥼🧪")
