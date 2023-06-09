@@ -15,14 +15,14 @@ import shutil
 
 # Parameters
 N = 8
-n_TRAIN = 130
+n_TRAIN = 80
 n_TEST = 200
-NUM_EXP = 20
+NUM_EXP = 8
 DEVICE_TYPE = 'cpu'
 DEVICE = torch.device(DEVICE_TYPE)
 loss_function = torch.nn.MSELoss()
 MIN_WIDTH_EXPON = 6
-MAX_WIDTH_EXPON = 14
+MAX_WIDTH_EXPON = 10
 
 # Hyperparameters
 BATCH_SIZE = n_TRAIN
@@ -38,6 +38,8 @@ GREEN = '#388E3C'
 LIGHT_GREEN = '#8BC34A'
 INDIGO = '#3F51B5'
 BLUE = '#2196F3'
+AMBER = '#FFA000'
+LIGHT_AMBER = '#FFCA28'
 
 class SphereDataset(torch.utils.data.Dataset):
     def __init__(self, distribution, n, V = None):
@@ -193,7 +195,7 @@ def has_converged(a):
 
     return False
 
-def train(model, optimizer, train_dataset, m, exp):
+def train(model, optimizer, train_dataset, m, exp, is_frozen):
     was_in_training = model.training
     model.train(True)
 
@@ -210,7 +212,7 @@ def train(model, optimizer, train_dataset, m, exp):
         train_loss_values.append(get_loss(model, train_dataset))
 
         if (epoch+1)%ALPHA==0:
-            print(f'm={m}, exp={exp}, epoch={epoch}, train_loss={train_loss_values[-1]}, ',end="")
+            print(f'm={m}, exp={exp}, is_frozen={is_frozen}, epoch={epoch}, train_loss={train_loss_values[-1]}, ',end="")
             if has_converged(train_loss_values):
                 break
 
@@ -231,7 +233,7 @@ def train(model, optimizer, train_dataset, m, exp):
 
     # Create training curves
     fig, axs = matplotlib.pyplot.subplots(figsize=[10, 10], dpi=100, tight_layout=True)
-    fig.suptitle(f'm={m}, exp={exp}')
+    fig.suptitle(f'm={m}, exp={exp}, is_frozen={is_frozen}')
 
     axs.plot(epoch_values, train_loss_values, linestyle='-', marker='o', color=BLUE)
     axs.set_xlabel('epoch')
@@ -244,7 +246,7 @@ def train(model, optimizer, train_dataset, m, exp):
     if not os.path.isdir(fig_dir):
         os.makedirs(fig_dir)
 
-    fig.savefig(fig_dir + f'exp={exp}.pdf')
+    fig.savefig(fig_dir + f'exp={exp},is_frozen={is_frozen}.pdf')
     matplotlib.pyplot.close(fig)
 
     model.train(was_in_training)
@@ -264,6 +266,7 @@ m_exponents = range(MIN_WIDTH_EXPON, MAX_WIDTH_EXPON+1)
 m_values = [2**exp for exp in m_exponents]
 nn_loss = numpy.empty([NUM_EXP, len(m_values)])
 kern_diff = numpy.empty([NUM_EXP, len(m_values)])
+nn_loss_frozen = numpy.empty([NUM_EXP, len(m_values)])
 for exp in range(NUM_EXP):
     # Sample new train_dataset
     train_dataset = SphereDataset(distribution, n_TRAIN, test_dataset.V)
@@ -289,18 +292,34 @@ for exp in range(NUM_EXP):
         Kw0_matrix = Kw_matrix(train_inputs, nn)
         
         # Train the nn
-        train(nn, optimizer, train_dataset, m, exp)
+        train(nn, optimizer, train_dataset, m, exp, False)
 
         nn_loss[exp,m_index] = get_loss(nn, test_dataset)
 
         Kwconv_matrix = Kw_matrix(train_inputs,nn)
         kern_diff[exp,m_index] = torch.linalg.matrix_norm(Kwconv_matrix-Kw0_matrix, ord=2)
 
+        # Frozen nn
+        nn_frozen = NeuralNetworkASI(m)
+        nn_frozen.hidden_layer1.requires_grad_(False)
+        nn_frozen.hidden_layer2.requires_grad_(False)
+        nn_frozen.to(DEVICE)
+
+        # Set up the optimizer for nn_frozen
+        optimizer = torch.optim.SGD(nn_frozen.parameters(), lr=LR, momentum=MOMENTUM)
+        
+        # Train nn_frozen
+        train(nn_frozen, optimizer, train_dataset, m, exp, True)
+
+        nn_loss_frozen[exp,m_index] = get_loss(nn_frozen, test_dataset)
+
 # l2_loss plot
 NTK_loss_mean = numpy.mean(NTK_loss)
 NTK_loss_std = numpy.std(NTK_loss)
 nn_loss_mean = numpy.mean(nn_loss, axis=0)
 nn_loss_std = numpy.std(nn_loss, axis=0)
+nn_loss_frozen_mean = numpy.mean(nn_loss_frozen, axis=0)
+nn_loss_frozen_std = numpy.std(nn_loss_frozen, axis=0)
 
 fig, axs = matplotlib.pyplot.subplots(figsize=[10, 10], dpi=100, tight_layout=True)
 axs.set_xlabel('m')
@@ -310,6 +329,7 @@ axs.set_xscale('log', base=2)
 
 axs.errorbar(m_values, NTK_loss_mean*numpy.ones(len(m_values)), NTK_loss_std*numpy.ones(len(m_values)), linestyle='-', marker='o', color=GREEN, ecolor=LIGHT_GREEN, capsize=7)
 axs.errorbar(m_values, nn_loss_mean, nn_loss_std, linestyle='-', marker='o', color=INDIGO, ecolor=BLUE, capsize=7)
+axs.errorbar(m_values, nn_loss_frozen_mean, nn_loss_frozen_std, linestyle='-', marker='o', color=AMBER, ecolor=LIGHT_AMBER, capsize=7)
 
 script_dir = os.path.dirname(__file__)
 fig.savefig(script_dir+'/../output/l2_loss.pdf')
