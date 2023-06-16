@@ -17,16 +17,16 @@ import shutil
 N = 8
 n_TRAIN = 80
 n_TEST = 200
-NUM_EXP = 8
+NUM_EXP = 7
 DEVICE_TYPE = 'cpu'
 DEVICE = torch.device(DEVICE_TYPE)
 loss_function = torch.nn.MSELoss()
 MIN_WIDTH_EXPON = 6
-MAX_WIDTH_EXPON = 10
+MAX_WIDTH_EXPON = 11
 
 # Hyperparameters
 BATCH_SIZE = n_TRAIN
-LR = 0.3
+LR = 2
 MOMENTUM = 0.00
 
 # Stopping criteria 
@@ -36,6 +36,8 @@ BETA = -0.2
 # Colors
 GREEN = '#388E3C'
 LIGHT_GREEN = '#8BC34A'
+BROWN = '#6D4C41'
+LIGHT_BROWN = '#8D6E63'
 INDIGO = '#3F51B5'
 BLUE = '#2196F3'
 AMBER = '#FFA000'
@@ -153,6 +155,19 @@ def K(a,b):
 
     return normprod*k(u)
 
+def K_RF(a,b):
+    norma = numpy.linalg.norm(a, 2)
+    normb = numpy.linalg.norm(b, 2)
+    normprod = norma*normb
+    inprod = numpy.dot(a,b)
+    u = inprod/normprod
+
+    # Fix values outside of [-1,1] due to computation inaccuracies
+    if(u<-1): u=-1
+    elif(u>1): u=1
+
+    return (normprod/2)*k1(u)
+
 def phi(model, input):
     # Forward
     output = model(input)
@@ -190,7 +205,7 @@ def has_converged(a):
     else: slope = dy/(range_y*(1-1/ALPHA))
     
     print(f'slope={slope}')
-    if slope > BETA:
+    if slope > BETA and a[-1] < 3e-2:
         return True
 
     return False
@@ -262,6 +277,7 @@ test_dataset = SphereDataset(distribution, n_TEST)
 (test_inputs, test_targets) = test_dataset[:]
 
 NTK_loss = numpy.empty(NUM_EXP)
+RFK_loss = numpy.empty(NUM_EXP)
 m_exponents = range(MIN_WIDTH_EXPON, MAX_WIDTH_EXPON+1)
 m_values = [2**exp for exp in m_exponents]
 nn_loss = numpy.empty([NUM_EXP, len(m_values)])
@@ -280,6 +296,14 @@ for exp in range(NUM_EXP):
     print(f'Infering NTK, exp={exp}')
     test_outputs_NTK = NTK.predict(test_inputs.cpu().numpy()) # .numpy() only takes tensor in CPU
     NTK_loss[exp] = sklearn.metrics.mean_squared_error(test_targets.cpu().numpy(), test_outputs_NTK) # .numpy() only takes tensor in CPU
+
+    # Train the RFK
+    RFK = sklearn.kernel_ridge.KernelRidge(alpha=1e-10, kernel=K_RF)
+    print(f'Training RFK, exp={exp}')
+    RFK.fit(train_inputs.cpu().numpy(), train_targets.cpu().numpy()) # .numpy() only takes tensor in CPU
+    print(f'Infering RFK, exp={exp}')
+    test_outputs_RFK = RFK.predict(test_inputs.cpu().numpy()) # .numpy() only takes tensor in CPU
+    RFK_loss[exp] = sklearn.metrics.mean_squared_error(test_targets.cpu().numpy(), test_outputs_RFK) # .numpy() only takes tensor in CPU
 
     # Train the nns
     for m_index, m in enumerate(m_values):
@@ -316,6 +340,8 @@ for exp in range(NUM_EXP):
 # l2_loss plot
 NTK_loss_mean = numpy.mean(NTK_loss)
 NTK_loss_std = numpy.std(NTK_loss)
+RFK_loss_mean = numpy.mean(RFK_loss)
+RFK_loss_std = numpy.std(RFK_loss)
 nn_loss_mean = numpy.mean(nn_loss, axis=0)
 nn_loss_std = numpy.std(nn_loss, axis=0)
 nn_loss_frozen_mean = numpy.mean(nn_loss_frozen, axis=0)
@@ -328,6 +354,7 @@ axs.grid()
 axs.set_xscale('log', base=2)
 
 axs.errorbar(m_values, NTK_loss_mean*numpy.ones(len(m_values)), NTK_loss_std*numpy.ones(len(m_values)), linestyle='-', marker='o', color=GREEN, ecolor=LIGHT_GREEN, capsize=7)
+axs.errorbar(m_values, RFK_loss_mean*numpy.ones(len(m_values)), RFK_loss_std*numpy.ones(len(m_values)), linestyle='-', marker='o', color=BROWN, ecolor=LIGHT_BROWN, capsize=7)
 axs.errorbar(m_values, nn_loss_mean, nn_loss_std, linestyle='-', marker='o', color=INDIGO, ecolor=BLUE, capsize=7)
 axs.errorbar(m_values, nn_loss_frozen_mean, nn_loss_frozen_std, linestyle='-', marker='o', color=AMBER, ecolor=LIGHT_AMBER, capsize=7)
 
