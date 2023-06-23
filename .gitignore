@@ -2,3 +2,4 @@
 out/*
 env/*
 src/__pycache__/*
+output/*
