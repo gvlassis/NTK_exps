@@ -17,12 +17,12 @@ import shutil
 N = 8
 n_TRAIN = 80
 n_TEST = 200
-NUM_EXP = 7
+NUM_EXP = 10
 DEVICE_TYPE = 'cpu'
 DEVICE = torch.device(DEVICE_TYPE)
 loss_function = torch.nn.MSELoss()
 MIN_WIDTH_EXPON = 6
-MAX_WIDTH_EXPON = 11
+MAX_WIDTH_EXPON = 13
 
 # Hyperparameters
 BATCH_SIZE = n_TRAIN
@@ -120,6 +120,25 @@ class NeuralNetworkASI(torch.nn.Module):
         output = (math.sqrt(2)/2)*(output1 - output2)
 
         return output
+
+    # Exact solution
+    def train_output(self, X, Y):
+        Y = torch.reshape(Y, (-1,1))
+
+        Z_1 = self.hidden_layer1(X)
+        Z_1 = torch.nn.functional.relu(Z_1)
+
+        Z_2 = self.hidden_layer2(X)
+        Z_2 = torch.nn.functional.relu(Z_2)
+
+        Z_ = torch.cat( (Z_1/math.sqrt(self.m), -Z_2/math.sqrt(self.m)), 1)
+
+        # It is always preferred to use lstsq() when possible, as it is faster and more numerically stable than computing the pseudoinverse explicitly.
+        V = torch.linalg.lstsq(Z_,Y).solution.T
+
+        with torch.no_grad(): 
+            self.output_layer1.weight.copy_(V[0,:self.m])
+            self.output_layer2.weight.copy_(V[0,self.m:])
 
 def get_loss(model, dataset):
     was_in_training=model.training
@@ -325,15 +344,9 @@ for exp in range(NUM_EXP):
 
         # Frozen nn
         nn_frozen = NeuralNetworkASI(m)
-        nn_frozen.hidden_layer1.requires_grad_(False)
-        nn_frozen.hidden_layer2.requires_grad_(False)
         nn_frozen.to(DEVICE)
 
-        # Set up the optimizer for nn_frozen
-        optimizer = torch.optim.SGD(nn_frozen.parameters(), lr=LR, momentum=MOMENTUM)
-        
-        # Train nn_frozen
-        train(nn_frozen, optimizer, train_dataset, m, exp, True)
+        nn_frozen.train_output(train_inputs, train_targets)
 
         nn_loss_frozen[exp,m_index] = get_loss(nn_frozen, test_dataset)
 
@@ -372,7 +385,7 @@ axs.set_ylabel('kern_diff')
 axs.grid()
 axs.set_xscale('log', base=2)
 
-axs.errorbar(m_values, kern_diff_mean, kern_diff_std, linestyle='-', marker='o', color=INDIGO, ecolor=BLUE, capsize=7)
+axs.errorbar(m_values, kern_diff_mean*numpy.ones(len(m_values)), kern_diff_std*numpy.ones(len(m_values)), linestyle='-', marker='o', color=INDIGO, ecolor=BLUE, capsize=7)
 
 script_dir = os.path.dirname(__file__)
 fig.savefig(script_dir+'/../output/kern_diff.pdf')
