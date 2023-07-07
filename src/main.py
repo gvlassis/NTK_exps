@@ -16,18 +16,24 @@ import shutil
 # Parameters
 N = 8
 n_TRAIN = 80
-n_TEST = 200
-NUM_EXP = 10
+n_TEST = 512
+κ = 3
+r = 1/(3*κ-1)
+δ = 3/(3*κ-1)
+CENTERS_X = (-1/2+r+δ*torch.arange(κ)).repeat(κ,1)
+CENTERS_Y = (-1/2+r+δ*torch.arange(κ)).repeat(κ,1).T
+CENTERS = torch.stack((CENTERS_X,CENTERS_Y),dim=2)
+NUM_EXP = 20
 DEVICE_TYPE = 'cpu'
 DEVICE = torch.device(DEVICE_TYPE)
 loss_function = torch.nn.MSELoss()
 MIN_WIDTH_EXPON = 6
-MAX_WIDTH_EXPON = 13
+MAX_WIDTH_EXPON = 11
 
 # Hyperparameters
 BATCH_SIZE = n_TRAIN
-LR = 2
-MOMENTUM = 0.00
+LR = 1
+MOMENTUM = 0.95
 
 # Stopping criteria 
 ALPHA = 4
@@ -70,6 +76,39 @@ class SphereDataset(torch.utils.data.Dataset):
     def __len__(self):
         return self.len
 
+class ChizatDataset(torch.utils.data.Dataset):
+    def __init__(self, categorical_distribution, radius_uniform_distribution, angle_uniform_distribution, noise_uniform_distribution, bernoulli_distribution, n, N, V = None):
+        self.len = n
+        self.dim = N
+        self.κ = categorical_distribution.probs.shape[0]
+
+        if V is None:
+            self.V = (bernoulli_distribution.sample([self.κ,self.κ])-0.5)*2
+        else:
+            self.V = V
+        
+        # datapoint->disk
+        D = categorical_distribution.sample([n,2])
+        # datapoint->center
+        C = CENTERS[D[:,0],D[:,1]]
+        R = radius_uniform_distribution.sample([n])
+        Φ = angle_uniform_distribution.sample([n])
+
+        X_x = C[:,0] + R*torch.cos(Φ)
+        X_y = C[:,1] + R*torch.sin(Φ)
+        X_xy = torch.stack((X_x,X_y),dim=1)
+        X_noise = noise_uniform_distribution.sample([n,N-2])
+
+        self.X = torch.cat((X_xy,X_noise),dim=1)
+
+        self.Y = self.V[D[:,0],D[:,1]]
+        
+    def __getitem__(self, i):
+        return self.X[i], self.Y[i]
+
+    def __len__(self):
+        return self.len
+    
 class NeuralNetwork(torch.nn.Module):
     def __init__(self, m):
         super(NeuralNetwork, self).__init__()
@@ -284,15 +323,20 @@ def train(model, optimizer, train_dataset, m, exp, is_frozen):
     matplotlib.pyplot.close(fig)
 
     model.train(was_in_training)
-
+    
 # Clean working directory
 script_dir = os.path.dirname(__file__)
 dir_to_clean = os.path.join(script_dir, '../output/')
 if os.path.isdir(dir_to_clean): shutil.rmtree(dir_to_clean)
 
-distribution = torch.distributions.multivariate_normal.MultivariateNormal(torch.zeros(N,device=DEVICE), torch.eye(N,device=DEVICE))
+probs = torch.full([κ],1/κ)
+categorical_distribution = torch.distributions.categorical.Categorical(probs)
+radius_uniform_distribution = torch.distributions.uniform.Uniform(0, r)
+angle_uniform_distribution = torch.distributions.uniform.Uniform(0, 2*math.pi)
+noise_uniform_distribution = torch.distributions.uniform.Uniform(-1/2, 1/2)
+bernoulli_distribution = torch.distributions.bernoulli.Bernoulli(0.5)
 
-test_dataset = SphereDataset(distribution, n_TEST)
+test_dataset = ChizatDataset(categorical_distribution, radius_uniform_distribution, angle_uniform_distribution, noise_uniform_distribution, bernoulli_distribution, n_TEST, N)
 (test_inputs, test_targets) = test_dataset[:]
 
 NTK_loss = numpy.empty(NUM_EXP)
@@ -304,7 +348,7 @@ kern_diff = numpy.empty([NUM_EXP, len(m_values)])
 nn_loss_frozen = numpy.empty([NUM_EXP, len(m_values)])
 for exp in range(NUM_EXP):
     # Sample new train_dataset
-    train_dataset = SphereDataset(distribution, n_TRAIN, test_dataset.V)
+    train_dataset = ChizatDataset(categorical_distribution, radius_uniform_distribution, angle_uniform_distribution, noise_uniform_distribution, bernoulli_distribution, n_TRAIN, N, test_dataset.V)
 
     # Train the NTK
     (train_inputs, train_targets) = train_dataset[:]
@@ -331,16 +375,11 @@ for exp in range(NUM_EXP):
 
         # Set up the optimizer for the nn
         optimizer = torch.optim.SGD(nn.parameters(), lr=LR, momentum=MOMENTUM)
-
-        Kw0_matrix = Kw_matrix(train_inputs, nn)
         
         # Train the nn
         train(nn, optimizer, train_dataset, m, exp, False)
 
         nn_loss[exp,m_index] = get_loss(nn, test_dataset)
-
-        Kwconv_matrix = Kw_matrix(train_inputs,nn)
-        kern_diff[exp,m_index] = torch.linalg.matrix_norm(Kwconv_matrix-Kw0_matrix, ord=2)
 
         # Frozen nn
         nn_frozen = NeuralNetworkASI(m)
@@ -373,22 +412,6 @@ axs.errorbar(m_values, nn_loss_frozen_mean, nn_loss_frozen_std, linestyle='-', m
 
 script_dir = os.path.dirname(__file__)
 fig.savefig(script_dir+'/../output/l2_loss.pdf')
-matplotlib.pyplot.close(fig)
-
-# kern_diff plot
-kern_diff_mean = numpy.mean(kern_diff, axis=1)
-kern_diff_std = numpy.std(kern_diff, axis=1)
-
-fig, axs = matplotlib.pyplot.subplots(figsize=[10, 10], dpi=100, tight_layout=True)
-axs.set_xlabel('m')
-axs.set_ylabel('kern_diff')
-axs.grid()
-axs.set_xscale('log', base=2)
-
-axs.errorbar(m_values, kern_diff_mean*numpy.ones(len(m_values)), kern_diff_std*numpy.ones(len(m_values)), linestyle='-', marker='o', color=INDIGO, ecolor=BLUE, capsize=7)
-
-script_dir = os.path.dirname(__file__)
-fig.savefig(script_dir+'/../output/kern_diff.pdf')
 matplotlib.pyplot.close(fig)
 
 print('🧪')
