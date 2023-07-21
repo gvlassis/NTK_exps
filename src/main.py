@@ -16,7 +16,7 @@ import shutil
 # Parameters
 N = 8
 n_TRAIN = 80
-n_TEST = 512
+n_TEST = 10000
 κ = 3
 r = 1/(3*κ-1)
 δ = 3/(3*κ-1)
@@ -27,12 +27,12 @@ NUM_EXP = 20
 DEVICE_TYPE = 'cpu'
 DEVICE = torch.device(DEVICE_TYPE)
 loss_function = torch.nn.MSELoss()
-MIN_WIDTH_EXPON = 6
-MAX_WIDTH_EXPON = 11
+MIN_WIDTH_EXPON = 7
+MAX_WIDTH_EXPON = 13
 
 # Hyperparameters
 BATCH_SIZE = n_TRAIN
-LR = 1
+LR = 0.5
 MOMENTUM = 0.95
 
 # Stopping criteria 
@@ -49,36 +49,9 @@ BLUE = '#2196F3'
 AMBER = '#FFA000'
 LIGHT_AMBER = '#FFCA28'
 
-class SphereDataset(torch.utils.data.Dataset):
-    def __init__(self, distribution, n, V = None):
-        self.dim = distribution.event_shape
-        self.len = n
-
-        if V is None:
-            self.V = distribution.sample()
-            self.V = self.V / torch.linalg.norm(self.V)
-        else:
-            self.V = V
-        
-        self.X = distribution.sample((n,))
-        line_norms = torch.linalg.norm(self.X,dim=1)
-        line_norms_T = torch.reshape(line_norms,(n,1))
-        self.X = self.X/line_norms_T
-  
-        self.Y = torch.matmul(self.X,self.V)
-
-        self.Y = self.Y >= 0 
-        self.Y = self.Y.float()
-
-    def __getitem__(self, i):
-        return self.X[i], self.Y[i]
-
-    def __len__(self):
-        return self.len
-
-class ChizatDataset(torch.utils.data.Dataset):
+class ChizatDatasetAugmented(torch.utils.data.Dataset):
     def __init__(self, categorical_distribution, radius_uniform_distribution, angle_uniform_distribution, noise_uniform_distribution, bernoulli_distribution, n, N, V = None):
-        self.len = n
+        self.len = n 
         self.dim = N
         self.κ = categorical_distribution.probs.shape[0]
 
@@ -98,8 +71,9 @@ class ChizatDataset(torch.utils.data.Dataset):
         X_y = C[:,1] + R*torch.sin(Φ)
         X_xy = torch.stack((X_x,X_y),dim=1)
         X_noise = noise_uniform_distribution.sample([n,N-2])
+        X_1 = torch.full([n,1],1)
 
-        self.X = torch.cat((X_xy,X_noise),dim=1)
+        self.X = torch.cat((X_xy,X_noise,X_1),dim=1)
 
         self.Y = self.V[D[:,0],D[:,1]]
         
@@ -108,38 +82,18 @@ class ChizatDataset(torch.utils.data.Dataset):
 
     def __len__(self):
         return self.len
-    
-class NeuralNetwork(torch.nn.Module):
-    def __init__(self, m):
-        super(NeuralNetwork, self).__init__()
-        self.m = m
-        self.hidden_layer = torch.nn.Linear(N, m, bias=False)
-        self.output_layer = torch.nn.Linear(m, 1, bias=False)
-        self.apply(self._init_weights)
-
-    def _init_weights(self, module):
-        if isinstance(module, torch.nn.Linear):
-            module.weight.data.normal_(mean=0.0, std=1)
-
-    def forward(self, input):
-        output = self.hidden_layer(input)
-        output = torch.nn.functional.relu(output)
-        output = self.output_layer(output)
-        output = output*math.sqrt(2/self.m)
-
-        return output
 
 class NeuralNetworkASI(torch.nn.Module):
     def __init__(self, m):
         super(NeuralNetworkASI, self).__init__()
         self.m = m
         
-        self.hidden_layer1 = torch.nn.Linear(N, m, bias=False)
+        self.hidden_layer1 = torch.nn.Linear(N+1, m, bias=False)
         self.output_layer1 = torch.nn.Linear(m, 1, bias=False)
         self.hidden_layer1.weight.data.normal_(mean=0.0, std=1)
         self.output_layer1.weight.data.normal_(mean=0.0, std=1)
 
-        self.hidden_layer2 = torch.nn.Linear(N, m, bias=False)
+        self.hidden_layer2 = torch.nn.Linear(N+1, m, bias=False)
         self.output_layer2 = torch.nn.Linear(m, 1, bias=False)
         with torch.no_grad(): 
             self.hidden_layer2.weight.copy_(self.hidden_layer1.weight)
@@ -336,7 +290,7 @@ angle_uniform_distribution = torch.distributions.uniform.Uniform(0, 2*math.pi)
 noise_uniform_distribution = torch.distributions.uniform.Uniform(-1/2, 1/2)
 bernoulli_distribution = torch.distributions.bernoulli.Bernoulli(0.5)
 
-test_dataset = ChizatDataset(categorical_distribution, radius_uniform_distribution, angle_uniform_distribution, noise_uniform_distribution, bernoulli_distribution, n_TEST, N)
+test_dataset = ChizatDatasetAugmented(categorical_distribution, radius_uniform_distribution, angle_uniform_distribution, noise_uniform_distribution, bernoulli_distribution, n_TEST, N)
 (test_inputs, test_targets) = test_dataset[:]
 
 NTK_loss = numpy.empty(NUM_EXP)
@@ -344,11 +298,10 @@ RFK_loss = numpy.empty(NUM_EXP)
 m_exponents = range(MIN_WIDTH_EXPON, MAX_WIDTH_EXPON+1)
 m_values = [2**exp for exp in m_exponents]
 nn_loss = numpy.empty([NUM_EXP, len(m_values)])
-kern_diff = numpy.empty([NUM_EXP, len(m_values)])
 nn_loss_frozen = numpy.empty([NUM_EXP, len(m_values)])
 for exp in range(NUM_EXP):
     # Sample new train_dataset
-    train_dataset = ChizatDataset(categorical_distribution, radius_uniform_distribution, angle_uniform_distribution, noise_uniform_distribution, bernoulli_distribution, n_TRAIN, N, test_dataset.V)
+    train_dataset = ChizatDatasetAugmented(categorical_distribution, radius_uniform_distribution, angle_uniform_distribution, noise_uniform_distribution, bernoulli_distribution, n_TRAIN, N, test_dataset.V)
 
     # Train the NTK
     (train_inputs, train_targets) = train_dataset[:]
