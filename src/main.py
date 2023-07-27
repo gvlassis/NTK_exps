@@ -152,6 +152,20 @@ def get_loss(model, dataset):
 
     model.train(was_in_training)
     return loss.item()
+
+def get_error(model, dataset):
+    was_in_training=model.training
+    model.train(False)
+
+    (inputs, targets) = dataset[:]
+    outputs = model(inputs) 
+    outputs = outputs.reshape(-1) # Otherwise, outputs.shape=torch.Size([n, 1]) while loss_function() expects two tensors of the same shape and type
+    predictions = (outputs > 0)*2-1
+    errors = torch.sum(predictions != targets)
+    error = errors/len(targets)
+
+    model.train(was_in_training)
+    return error.item()
  
 def k0(u):
     return (1/math.pi)*(math.pi-math.acos(u))
@@ -282,12 +296,12 @@ test_dataset_augmented = ChizatDatasetAugmented(test_dataset)
 (test_inputs, test_targets) = test_dataset[:]
 (test_inputs_augmented, test_targets_augmented) = test_dataset_augmented[:]
 
-NTK_loss = numpy.empty(NUM_EXP)
-RFK_loss = numpy.empty(NUM_EXP)
+NTK_error = numpy.empty(NUM_EXP)
+RFK_error = numpy.empty(NUM_EXP)
 m_exponents = range(MIN_WIDTH_EXPON, MAX_WIDTH_EXPON+1)
 m_values = [2**exp for exp in m_exponents]
-nn_loss = numpy.empty([NUM_EXP, len(m_values)])
-nn_loss_frozen = numpy.empty([NUM_EXP, len(m_values)])
+nn_error = numpy.empty([NUM_EXP, len(m_values)])
+nn_error_frozen = numpy.empty([NUM_EXP, len(m_values)])
 for exp in range(NUM_EXP):
     # Sample new train_dataset
     train_dataset = ChizatDataset(categorical_distribution, radius_uniform_distribution, angle_uniform_distribution, noise_uniform_distribution, bernoulli_distribution, n_TRAIN, N, test_dataset.V)
@@ -302,7 +316,9 @@ for exp in range(NUM_EXP):
     NTK.fit(train_inputs_augmented.cpu().numpy(), train_targets_augmented.cpu().numpy()) # .numpy() only takes tensor in CPU
     print(f'Infering NTK, exp={exp}')
     test_outputs_NTK = NTK.predict(test_inputs_augmented.cpu().numpy()) # .numpy() only takes tensor in CPU
-    NTK_loss[exp] = sklearn.metrics.mean_squared_error(test_targets_augmented.cpu().numpy(), test_outputs_NTK) # .numpy() only takes tensor in CPU
+    test_predictions_NTK = (test_outputs_NTK > 0)*2-1
+    test_errors_NTK = numpy.sum(test_predictions_NTK != test_targets_augmented.cpu().numpy())
+    NTK_error[exp] = test_errors_NTK/len(test_targets_augmented)
 
     # Train the RFK
     RFK = sklearn.kernel_ridge.KernelRidge(alpha=1e-10, kernel=K_RF)
@@ -310,7 +326,9 @@ for exp in range(NUM_EXP):
     RFK.fit(train_inputs_augmented.cpu().numpy(), train_targets_augmented.cpu().numpy()) # .numpy() only takes tensor in CPU
     print(f'Infering RFK, exp={exp}')
     test_outputs_RFK = RFK.predict(test_inputs_augmented.cpu().numpy()) # .numpy() only takes tensor in CPU
-    RFK_loss[exp] = sklearn.metrics.mean_squared_error(test_targets_augmented.cpu().numpy(), test_outputs_RFK) # .numpy() only takes tensor in CPU
+    test_predictions_RFK = (test_outputs_RFK > 0)*2-1
+    test_errors_RFK = numpy.sum(test_predictions_RFK != test_targets_augmented.cpu().numpy())
+    RFK_error[exp] = test_errors_RFK/len(test_targets_augmented)
 
     # Train the nns
     for m_index, m in enumerate(m_values):
@@ -323,7 +341,7 @@ for exp in range(NUM_EXP):
         # Train the nn
         train(nn, optimizer, train_dataset_augmented, m, exp, False)
 
-        nn_loss[exp,m_index] = get_loss(nn, test_dataset_augmented)
+        nn_error[exp,m_index] = get_error(nn, test_dataset_augmented)
 
         # Frozen nn
         nn_frozen = NeuralNetworkASI(m)
@@ -331,38 +349,40 @@ for exp in range(NUM_EXP):
 
         nn_frozen.train_output(train_inputs_augmented, train_targets_augmented)
 
-        nn_loss_frozen[exp,m_index] = get_loss(nn_frozen, test_dataset_augmented)
+        nn_error_frozen[exp,m_index] = get_error(nn_frozen, test_dataset_augmented)
 
-# l2_loss plot
-NTK_loss_mean = numpy.mean(NTK_loss)
-NTK_loss_std = numpy.std(NTK_loss)
-RFK_loss_mean = numpy.mean(RFK_loss)
-RFK_loss_std = numpy.std(RFK_loss)
-nn_loss_mean = numpy.mean(nn_loss, axis=0)
-nn_loss_std = numpy.std(nn_loss, axis=0)
-nn_loss_frozen_mean = numpy.mean(nn_loss_frozen, axis=0)
-nn_loss_frozen_std = numpy.std(nn_loss_frozen, axis=0)
+# error plot
+NTK_error_mean = numpy.mean(NTK_error)
+NTK_error_std = numpy.std(NTK_error)
+RFK_error_mean = numpy.mean(RFK_error)
+RFK_error_std = numpy.std(RFK_error)
+nn_error_mean = numpy.mean(nn_error, axis=0)
+nn_error_std = numpy.std(nn_error, axis=0)
+nn_error_frozen_mean = numpy.mean(nn_error_frozen, axis=0)
+nn_error_frozen_std = numpy.std(nn_error_frozen, axis=0)
 
 fig = matplotlib.figure.Figure()
 gs = fig.add_gridspec(1,1)
-ax = fig.add_subplot(gs[0,0],xlabel="m",ylabel="l2_loss")
+ax = fig.add_subplot(gs[0,0],xlabel="m",ylabel="error")
 ax.set_xscale('log', base=2)
 ax.grid()
 
-ax.plot(m_values,numpy.full((len(m_values)),NTK_loss_mean),marker="o",label="NTK")
-ax.fill_between(m_values,numpy.full((len(m_values)),NTK_loss_mean-NTK_loss_std),numpy.full((len(m_values)),NTK_loss_mean+NTK_loss_std),alpha=3/8)
-ax.plot(m_values,numpy.full((len(m_values)),RFK_loss_mean),marker="o",label="RFK")
-ax.fill_between(m_values,numpy.full((len(m_values)),RFK_loss_mean-RFK_loss_std),numpy.full((len(m_values)),RFK_loss_mean+RFK_loss_std),alpha=3/8)
-ax.plot(m_values,nn_loss_mean,marker="o",label="NN")
-ax.fill_between(m_values,nn_loss_mean-nn_loss_std,nn_loss_mean+nn_loss_std,alpha=3/8)
-ax.plot(m_values,nn_loss_frozen_mean,marker="o",label="NN_frozen")
-ax.fill_between(m_values,nn_loss_frozen_mean-nn_loss_frozen_std,nn_loss_frozen_mean+nn_loss_frozen_std,alpha=3/8)
+ax.plot(m_values,numpy.full((len(m_values)),NTK_error_mean),marker="o",label="NTK")
+ax.fill_between(m_values,numpy.full((len(m_values)),NTK_error_mean-NTK_error_std),numpy.full((len(m_values)),NTK_error_mean+NTK_error_std),alpha=3/8)
+ax.plot(m_values,numpy.full((len(m_values)),RFK_error_mean),marker="o",label="RFK")
+ax.fill_between(m_values,numpy.full((len(m_values)),RFK_error_mean-RFK_error_std),numpy.full((len(m_values)),RFK_error_mean+RFK_error_std),alpha=3/8)
+ax.plot(m_values,nn_error_mean,marker="o",label="NN")
+ax.fill_between(m_values,nn_error_mean-nn_error_std,nn_error_mean+nn_error_std,alpha=3/8)
+ax.plot(m_values,nn_error_frozen_mean,marker="o",label="NN_frozen")
+ax.fill_between(m_values,nn_error_frozen_mean-nn_error_frozen_std,nn_error_frozen_mean+nn_error_frozen_std,alpha=3/8)
 ax.legend()
 
 script_dir = os.path.dirname(__file__)
-fig.savefig(script_dir+'/../output/l2_loss.pdf')
+fig.savefig(script_dir+'/../output/error.pdf')
 
 # Plots for debugging
+NTK_loss = sklearn.metrics.mean_squared_error(test_targets_augmented.cpu().numpy(), test_outputs_NTK) # .numpy() only takes tensor in CPU
+
 train_outputs_NTK = NTK.predict(train_inputs_augmented.cpu().numpy()) # .numpy() only takes tensor in CPU
 NTK_train_loss = sklearn.metrics.mean_squared_error(train_targets_augmented.cpu().numpy(), train_outputs_NTK) # .numpy() only takes tensor in CPU
 
@@ -376,7 +396,7 @@ train_outputs_NTK_no_bias = NTK_no_bias.predict(train_inputs.cpu().numpy()) # .n
 NTK_no_bias_train_loss = sklearn.metrics.mean_squared_error(train_targets.cpu().numpy(), train_outputs_NTK_no_bias) # .numpy() only takes tensor in CPU
 
 plot_learned_function(test_inputs_augmented[:,0],test_inputs_augmented[:,1],test_targets_augmented,0,'ground_truth')
-plot_learned_function(test_inputs_augmented[:,0],test_inputs_augmented[:,1],test_outputs_NTK,NTK_loss[-1],'test_NTK')
+plot_learned_function(test_inputs_augmented[:,0],test_inputs_augmented[:,1],test_outputs_NTK,NTK_loss,'test_NTK')
 plot_learned_function(test_inputs[:,0],test_inputs[:,1],test_outputs_NTK_no_bias,NTK_no_bias_loss,'test_NTK_no_bias')
 
 plot_learned_function(train_inputs_augmented[:,0],train_inputs_augmented[:,1],train_outputs_NTK,NTK_train_loss,'train_NTK')
