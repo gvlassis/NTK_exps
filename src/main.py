@@ -3,7 +3,7 @@
 
 import numpy
 import torch
-import matplotlib.pyplot
+import matplotlib.figure
 import time
 import os
 import sklearn.svm
@@ -39,16 +39,6 @@ MOMENTUM = 0.95
 # Stopping criteria 
 ALPHA = 4
 BETA = -0.2
-
-# Colors
-GREEN = '#388E3C'
-LIGHT_GREEN = '#8BC34A'
-BROWN = '#6D4C41'
-LIGHT_BROWN = '#8D6E63'
-INDIGO = '#3F51B5'
-BLUE = '#2196F3'
-AMBER = '#FFA000'
-LIGHT_AMBER = '#FFCA28'
 
 class ChizatDataset(torch.utils.data.Dataset):
     def __init__(self, categorical_distribution, radius_uniform_distribution, angle_uniform_distribution, noise_uniform_distribution, bernoulli_distribution, n, N, V = None):
@@ -249,14 +239,13 @@ def train(model, optimizer, train_dataset, m, exp, is_frozen):
         epoch += 1
 
     # Create training curves
-    fig, axs = matplotlib.pyplot.subplots(figsize=[10, 10], dpi=100, tight_layout=True)
+    fig = matplotlib.figure.Figure()
     fig.suptitle(f'm={m}, exp={exp}, is_frozen={is_frozen}')
-
-    axs.plot(epoch_values, train_loss_values, linestyle='-', marker='o', color=BLUE)
-    axs.set_xlabel('epoch')
-    axs.set_ylabel('train_loss')
-    axs.grid()
-    axs.set_yscale('log')
+    gs = fig.add_gridspec(1,1)
+    ax = fig.add_subplot(gs[0,0],xlabel="epoch",ylabel="train_loss")   
+    ax.plot(epoch_values, train_loss_values, marker='o')
+    ax.set_yscale('log')
+    ax.grid()
 
     script_dir = os.path.dirname(__file__)
     fig_dir = os.path.join(script_dir, '../output/training_curves/m={0}/'.format(m))
@@ -264,20 +253,17 @@ def train(model, optimizer, train_dataset, m, exp, is_frozen):
         os.makedirs(fig_dir)
 
     fig.savefig(fig_dir + f'exp={exp},is_frozen={is_frozen}.pdf')
-    matplotlib.pyplot.close(fig)
 
     model.train(was_in_training)
 
 def plot_learned_function(x,y,z,loss,name):
-    fig, axs = matplotlib.pyplot.subplots(figsize=[10, 10], dpi=100, tight_layout=True)
-    axs.set_xlabel('x')
-    axs.set_ylabel('y')
-    axs.set_title("loss=%.4f" % (loss))
-    axs.grid()
-    axs.scatter(x, y, c=z)
+    fig = matplotlib.figure.Figure()
+    gs = fig.add_gridspec(1,1)
+    ax = fig.add_subplot(gs[0,0],title="loss=%.4f" % (loss),xlabel="x",ylabel="y")  
+    ax.grid()
+    ax.scatter(x, y, c=z)
     script_dir = os.path.dirname(__file__)
     fig.savefig(script_dir+'/../output/'+name+'.pdf')
-    matplotlib.pyplot.close(fig)
 
 # Clean working directory
 script_dir = os.path.dirname(__file__)
@@ -357,20 +343,24 @@ nn_loss_std = numpy.std(nn_loss, axis=0)
 nn_loss_frozen_mean = numpy.mean(nn_loss_frozen, axis=0)
 nn_loss_frozen_std = numpy.std(nn_loss_frozen, axis=0)
 
-fig, axs = matplotlib.pyplot.subplots(figsize=[10, 10], dpi=100, tight_layout=True)
-axs.set_xlabel('m')
-axs.set_ylabel('l2_loss')
-axs.grid()
-axs.set_xscale('log', base=2)
+fig = matplotlib.figure.Figure()
+gs = fig.add_gridspec(1,1)
+ax = fig.add_subplot(gs[0,0],xlabel="m",ylabel="l2_loss")
+ax.set_xscale('log', base=2)
+ax.grid()
+ax.legend()
 
-axs.errorbar(m_values, NTK_loss_mean*numpy.ones(len(m_values)), NTK_loss_std*numpy.ones(len(m_values)), linestyle='-', marker='o', color=GREEN, ecolor=LIGHT_GREEN, capsize=7)
-axs.errorbar(m_values, RFK_loss_mean*numpy.ones(len(m_values)), RFK_loss_std*numpy.ones(len(m_values)), linestyle='-', marker='o', color=BROWN, ecolor=LIGHT_BROWN, capsize=7)
-axs.errorbar(m_values, nn_loss_mean, nn_loss_std, linestyle='-', marker='o', color=INDIGO, ecolor=BLUE, capsize=7)
-axs.errorbar(m_values, nn_loss_frozen_mean, nn_loss_frozen_std, linestyle='-', marker='o', color=AMBER, ecolor=LIGHT_AMBER, capsize=7)
+ax.plot(m_values,numpy.full((len(m_values)),NTK_loss_mean),marker="o",label="NTK")
+ax.fill_between(m_values,numpy.full((len(m_values)),NTK_loss_mean-NTK_loss_std),numpy.full((len(m_values)),NTK_loss_mean+NTK_loss_std),alpha=3/8)
+ax.plot(m_values,numpy.full((len(m_values)),RFK_loss_mean),marker="o",label="RFK")
+ax.fill_between(m_values,numpy.full((len(m_values)),RFK_loss_mean-RFK_loss_std),numpy.full((len(m_values)),RFK_loss_mean+RFK_loss_std),alpha=3/8)
+ax.plot(m_values,nn_loss_mean,marker="o",label="NN")
+ax.fill_between(m_values,nn_loss_mean-nn_loss_std,nn_loss_mean+nn_loss_std,alpha=3/8)
+ax.plot(m_values,nn_loss_frozen_mean,marker="o",label="NN_frozen")
+ax.fill_between(m_values,nn_loss_frozen_mean-nn_loss_frozen_std,nn_loss_frozen_mean+nn_loss_frozen_std,alpha=3/8)
 
 script_dir = os.path.dirname(__file__)
 fig.savefig(script_dir+'/../output/l2_loss.pdf')
-matplotlib.pyplot.close(fig)
 
 # Plots for debugging
 train_outputs_NTK = NTK.predict(train_inputs_augmented.cpu().numpy()) # .numpy() only takes tensor in CPU
