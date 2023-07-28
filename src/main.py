@@ -15,8 +15,9 @@ import shutil
 import numpy 
 
 # Parameters
-N = 8
-n_TRAIN = 80
+N = 15
+m = 1000
+n_TRAIN_values = [32, 64, 128, 256, 512]
 n_TEST = 10000
 κ = 3
 r = 1/(3*κ-1)
@@ -24,23 +25,19 @@ r = 1/(3*κ-1)
 CENTERS_X = (-1/2+r+δ*torch.arange(κ)).repeat(κ,1)
 CENTERS_Y = (-1/2+r+δ*torch.arange(κ)).repeat(κ,1).T
 CENTERS = torch.stack((CENTERS_X,CENTERS_Y),dim=2)
-NUM_EXP = 2
+NUM_EXP = 10
 DEVICE_TYPE = 'cpu'
 DEVICE = torch.device(DEVICE_TYPE)
 loss_function = torch.nn.MSELoss()
-MIN_WIDTH_EXPON = 7
-MAX_WIDTH_EXPON = 8 
 
 # Hyperparameters
-BATCH_SIZE = n_TRAIN
-LR = 1
-MOMENTUM = 0.95
+LR = 0.5
+MOMENTUM = 0.00
 
 # Stopping criteria 
-ALPHA = 4
-BETA = -0.2
+ITERATIONS = 50000
 
-class ChizatDataset(torch.utils.data.Dataset):
+class ChizatDataset(torch.utils.data.Dataset): 
     def __init__(self, categorical_distribution, radius_uniform_distribution, angle_uniform_distribution, noise_uniform_distribution, bernoulli_distribution, n, N, V = None):
         self.len = n 
         self.dim = N
@@ -202,21 +199,7 @@ def K_RF(a,b):
 
     return (normprod/2)*k1(u)
 
-def has_converged(a):
-    y1 = math.log(a[int(len(a)/ALPHA)],10)
-    y2 = math.log(a[-1],10)
-    dy = y2-y1
-    range_y = math.log(max(a),10)-math.log(min(a),10)
-    if range_y == 0: slope=0
-    else: slope = dy/(range_y*(1-1/ALPHA))
-    
-    print(f'slope={slope}')
-    if slope > BETA and a[-1] < 3e-2:
-        return True
-
-    return False
-
-def train(model, optimizer, train_dataset, m, exp, is_frozen):
+def train(model, optimizer, train_dataset, exp, n_TRAIN):
     was_in_training = model.training
     model.train(True)
 
@@ -232,10 +215,10 @@ def train(model, optimizer, train_dataset, m, exp, is_frozen):
         epoch_values.append(epoch)
         train_loss_values.append(get_loss(model, train_dataset))
 
-        if (epoch+1)%ALPHA==0:
-            print(f'm={m}, exp={exp}, is_frozen={is_frozen}, epoch={epoch}, train_loss={train_loss_values[-1]}, ',end="")
-            if has_converged(train_loss_values):
-                break
+        print(f'exp={exp}, n_TRAIN={n_TRAIN}, epoch={epoch}, train_loss={train_loss_values[-1]}')
+
+        if epoch>ITERATIONS:
+            break
 
 	    # If we do not have convergence...
         for batch, (inputs, targets) in enumerate(train_loader):
@@ -254,7 +237,7 @@ def train(model, optimizer, train_dataset, m, exp, is_frozen):
 
     # Create training curves
     fig = matplotlib.figure.Figure()
-    fig.suptitle(f'm={m}, exp={exp}, is_frozen={is_frozen}')
+    fig.suptitle(f'm={m}, exp={exp}')
     gs = fig.add_gridspec(1,1)
     ax = fig.add_subplot(gs[0,0],xlabel="epoch",ylabel="train_loss")   
     ax.plot(epoch_values, train_loss_values, marker='o')
@@ -266,18 +249,9 @@ def train(model, optimizer, train_dataset, m, exp, is_frozen):
     if not os.path.isdir(fig_dir):
         os.makedirs(fig_dir)
 
-    fig.savefig(fig_dir + f'exp={exp},is_frozen={is_frozen}.pdf')
+    fig.savefig(fig_dir + f'exp={exp}.pdf')
 
     model.train(was_in_training)
-
-def plot_learned_function(x,y,z,loss,name):
-    fig = matplotlib.figure.Figure()
-    gs = fig.add_gridspec(1,1)
-    ax = fig.add_subplot(gs[0,0],title="loss=%.4f" % (loss),xlabel="x",ylabel="y")  
-    ax.grid()
-    ax.scatter(x, y, c=z)
-    script_dir = os.path.dirname(__file__)
-    fig.savefig(script_dir+'/../output/'+name+'.pdf')
 
 # Clean working directory
 script_dir = os.path.dirname(__file__)
@@ -296,42 +270,42 @@ test_dataset_augmented = ChizatDatasetAugmented(test_dataset)
 (test_inputs, test_targets) = test_dataset[:]
 (test_inputs_augmented, test_targets_augmented) = test_dataset_augmented[:]
 
-NTK_error = numpy.empty(NUM_EXP)
-RFK_error = numpy.empty(NUM_EXP)
-m_exponents = range(MIN_WIDTH_EXPON, MAX_WIDTH_EXPON+1)
-m_values = [2**exp for exp in m_exponents]
-nn_error = numpy.empty([NUM_EXP, len(m_values)])
-nn_error_frozen = numpy.empty([NUM_EXP, len(m_values)])
+NTK_error = numpy.empty([NUM_EXP, len(n_TRAIN_values)])
+RFK_error = numpy.empty([NUM_EXP, len(n_TRAIN_values)])
+nn_error = numpy.empty([NUM_EXP, len(n_TRAIN_values)])
+nn_error_frozen = numpy.empty([NUM_EXP, len(n_TRAIN_values)])
 for exp in range(NUM_EXP):
-    # Sample new train_dataset
-    train_dataset = ChizatDataset(categorical_distribution, radius_uniform_distribution, angle_uniform_distribution, noise_uniform_distribution, bernoulli_distribution, n_TRAIN, N, test_dataset.V)
-    train_dataset_augmented = ChizatDatasetAugmented(train_dataset)
+    for i, n_TRAIN in enumerate(n_TRAIN_values):
+        BATCH_SIZE = n_TRAIN
+        
+        # Sample new train_dataset
+        train_dataset = ChizatDataset(categorical_distribution, radius_uniform_distribution, angle_uniform_distribution, noise_uniform_distribution, bernoulli_distribution, n_TRAIN, N, test_dataset.V)
+        train_dataset_augmented = ChizatDatasetAugmented(train_dataset)
 
-    # Train the NTK
-    (train_inputs, train_targets) = train_dataset[:]
-    (train_inputs_augmented, train_targets_augmented) = train_dataset_augmented[:]
+        # Train the NTK
+        (train_inputs, train_targets) = train_dataset[:]
+        (train_inputs_augmented, train_targets_augmented) = train_dataset_augmented[:]
 
-    NTK = sklearn.kernel_ridge.KernelRidge(alpha=1e-10, kernel=K)
-    print(f'Training NTK, exp={exp}')
-    NTK.fit(train_inputs_augmented.cpu().numpy(), train_targets_augmented.cpu().numpy()) # .numpy() only takes tensor in CPU
-    print(f'Infering NTK, exp={exp}')
-    test_outputs_NTK = NTK.predict(test_inputs_augmented.cpu().numpy()) # .numpy() only takes tensor in CPU
-    test_predictions_NTK = (test_outputs_NTK > 0)*2-1
-    test_errors_NTK = numpy.sum(test_predictions_NTK != test_targets_augmented.cpu().numpy())
-    NTK_error[exp] = test_errors_NTK/len(test_targets_augmented)
+        NTK = sklearn.kernel_ridge.KernelRidge(alpha=1e-10, kernel=K)
+        print(f'Training NTK, exp={exp}, n_TRAIN={n_TRAIN}')
+        NTK.fit(train_inputs_augmented.cpu().numpy(), train_targets_augmented.cpu().numpy()) # .numpy() only takes tensor in CPU
+        print(f'Infering NTK, exp={exp}, n_TRAIN={n_TRAIN}')
+        test_outputs_NTK = NTK.predict(test_inputs_augmented.cpu().numpy()) # .numpy() only takes tensor in CPU
+        test_predictions_NTK = (test_outputs_NTK > 0)*2-1
+        test_errors_NTK = numpy.sum(test_predictions_NTK != test_targets_augmented.cpu().numpy())
+        NTK_error[exp,i] = test_errors_NTK/len(test_targets_augmented)
 
-    # Train the RFK
-    RFK = sklearn.kernel_ridge.KernelRidge(alpha=1e-10, kernel=K_RF)
-    print(f'Training RFK, exp={exp}')
-    RFK.fit(train_inputs_augmented.cpu().numpy(), train_targets_augmented.cpu().numpy()) # .numpy() only takes tensor in CPU
-    print(f'Infering RFK, exp={exp}')
-    test_outputs_RFK = RFK.predict(test_inputs_augmented.cpu().numpy()) # .numpy() only takes tensor in CPU
-    test_predictions_RFK = (test_outputs_RFK > 0)*2-1
-    test_errors_RFK = numpy.sum(test_predictions_RFK != test_targets_augmented.cpu().numpy())
-    RFK_error[exp] = test_errors_RFK/len(test_targets_augmented)
+        # Train the RFK
+        RFK = sklearn.kernel_ridge.KernelRidge(alpha=1e-10, kernel=K_RF)
+        print(f'Training RFK, exp={exp}, n_TRAIN={n_TRAIN}')
+        RFK.fit(train_inputs_augmented.cpu().numpy(), train_targets_augmented.cpu().numpy()) # .numpy() only takes tensor in CPU
+        print(f'Infering RFK, exp={exp}, n_TRAIN={n_TRAIN}')
+        test_outputs_RFK = RFK.predict(test_inputs_augmented.cpu().numpy()) # .numpy() only takes tensor in CPU
+        test_predictions_RFK = (test_outputs_RFK > 0)*2-1
+        test_errors_RFK = numpy.sum(test_predictions_RFK != test_targets_augmented.cpu().numpy())
+        RFK_error[exp,i] = test_errors_RFK/len(test_targets_augmented)
 
-    # Train the nns
-    for m_index, m in enumerate(m_values):
+        
         nn = NeuralNetworkASI(m)
         nn.to(DEVICE)
 
@@ -339,9 +313,9 @@ for exp in range(NUM_EXP):
         optimizer = torch.optim.SGD(nn.parameters(), lr=LR, momentum=MOMENTUM)
         
         # Train the nn
-        train(nn, optimizer, train_dataset_augmented, m, exp, False)
+        train(nn, optimizer, train_dataset_augmented, exp, n_TRAIN)
 
-        nn_error[exp,m_index] = get_error(nn, test_dataset_augmented)
+        nn_error[exp,i] = get_error(nn, test_dataset_augmented)
 
         # Frozen nn
         nn_frozen = NeuralNetworkASI(m)
@@ -349,13 +323,13 @@ for exp in range(NUM_EXP):
 
         nn_frozen.train_output(train_inputs_augmented, train_targets_augmented)
 
-        nn_error_frozen[exp,m_index] = get_error(nn_frozen, test_dataset_augmented)
+        nn_error_frozen[exp,i] = get_error(nn_frozen, test_dataset_augmented)
 
 # error plot
-NTK_error_mean = numpy.mean(NTK_error)
-NTK_error_std = numpy.std(NTK_error)
-RFK_error_mean = numpy.mean(RFK_error)
-RFK_error_std = numpy.std(RFK_error)
+NTK_error_mean = numpy.mean(NTK_error, axis=0)
+NTK_error_std = numpy.std(NTK_error, axis=0)
+RFK_error_mean = numpy.mean(RFK_error, axis=0)
+RFK_error_std = numpy.std(RFK_error, axis=0)
 nn_error_mean = numpy.mean(nn_error, axis=0)
 nn_error_std = numpy.std(nn_error, axis=0)
 nn_error_frozen_mean = numpy.mean(nn_error_frozen, axis=0)
@@ -363,43 +337,20 @@ nn_error_frozen_std = numpy.std(nn_error_frozen, axis=0)
 
 fig = matplotlib.figure.Figure()
 gs = fig.add_gridspec(1,1)
-ax = fig.add_subplot(gs[0,0],xlabel="m",ylabel="error")
-ax.set_xscale('log', base=2)
+ax = fig.add_subplot(gs[0,0],xlabel="n_TRAIN",ylabel="error")
 ax.grid()
 
-ax.plot(m_values,numpy.full((len(m_values)),NTK_error_mean),marker="o",label="NTK")
-ax.fill_between(m_values,numpy.full((len(m_values)),NTK_error_mean-NTK_error_std),numpy.full((len(m_values)),NTK_error_mean+NTK_error_std),alpha=3/8)
-ax.plot(m_values,numpy.full((len(m_values)),RFK_error_mean),marker="o",label="RFK")
-ax.fill_between(m_values,numpy.full((len(m_values)),RFK_error_mean-RFK_error_std),numpy.full((len(m_values)),RFK_error_mean+RFK_error_std),alpha=3/8)
-ax.plot(m_values,nn_error_mean,marker="o",label="NN")
-ax.fill_between(m_values,nn_error_mean-nn_error_std,nn_error_mean+nn_error_std,alpha=3/8)
-ax.plot(m_values,nn_error_frozen_mean,marker="o",label="NN_frozen")
-ax.fill_between(m_values,nn_error_frozen_mean-nn_error_frozen_std,nn_error_frozen_mean+nn_error_frozen_std,alpha=3/8)
+ax.plot(n_TRAIN_values,NTK_error_mean,marker="o",label="NTK")
+ax.fill_between(n_TRAIN_values,NTK_error_mean-NTK_error_std,NTK_error_mean+NTK_error_std,alpha=3/8)
+ax.plot(n_TRAIN_values,RFK_error_mean,marker="o",label="RFK")
+ax.fill_between(n_TRAIN_values,RFK_error_mean-RFK_error_std,RFK_error_mean+RFK_error_std,alpha=3/8)
+ax.plot(n_TRAIN_values,nn_error_mean,marker="o",label="NN")
+ax.fill_between(n_TRAIN_values,nn_error_mean-nn_error_std,nn_error_mean+nn_error_std,alpha=3/8)
+ax.plot(n_TRAIN_values,nn_error_frozen_mean,marker="o",label="NN_frozen")
+ax.fill_between(n_TRAIN_values,nn_error_frozen_mean-nn_error_frozen_std,nn_error_frozen_mean+nn_error_frozen_std,alpha=3/8)
 ax.legend()
 
 script_dir = os.path.dirname(__file__)
 fig.savefig(script_dir+'/../output/error.pdf')
-
-# Plots for debugging
-NTK_loss = sklearn.metrics.mean_squared_error(test_targets_augmented.cpu().numpy(), test_outputs_NTK) # .numpy() only takes tensor in CPU
-
-train_outputs_NTK = NTK.predict(train_inputs_augmented.cpu().numpy()) # .numpy() only takes tensor in CPU
-NTK_train_loss = sklearn.metrics.mean_squared_error(train_targets_augmented.cpu().numpy(), train_outputs_NTK) # .numpy() only takes tensor in CPU
-
-NTK_no_bias = sklearn.kernel_ridge.KernelRidge(alpha=1e-10, kernel=K)
-print(f'Training NTK_no_bias')
-NTK_no_bias.fit(train_inputs.cpu().numpy(), train_targets.cpu().numpy()) # .numpy() only takes tensor in CPU
-print(f'Infering NTK_no_bias')
-test_outputs_NTK_no_bias = NTK_no_bias.predict(test_inputs.cpu().numpy()) # .numpy() only takes tensor in CPU
-NTK_no_bias_loss = sklearn.metrics.mean_squared_error(test_targets.cpu().numpy(), test_outputs_NTK_no_bias) # .numpy() only takes tensor in CPU
-train_outputs_NTK_no_bias = NTK_no_bias.predict(train_inputs.cpu().numpy()) # .numpy() only takes tensor in CPU
-NTK_no_bias_train_loss = sklearn.metrics.mean_squared_error(train_targets.cpu().numpy(), train_outputs_NTK_no_bias) # .numpy() only takes tensor in CPU
-
-plot_learned_function(test_inputs_augmented[:,0],test_inputs_augmented[:,1],test_targets_augmented,0,'ground_truth')
-plot_learned_function(test_inputs_augmented[:,0],test_inputs_augmented[:,1],test_outputs_NTK,NTK_loss,'test_NTK')
-plot_learned_function(test_inputs[:,0],test_inputs[:,1],test_outputs_NTK_no_bias,NTK_no_bias_loss,'test_NTK_no_bias')
-
-plot_learned_function(train_inputs_augmented[:,0],train_inputs_augmented[:,1],train_outputs_NTK,NTK_train_loss,'train_NTK')
-plot_learned_function(train_inputs[:,0],train_inputs[:,1],train_outputs_NTK_no_bias,NTK_no_bias_train_loss,'train_NTK_no_bias')
 
 print('🧪')
