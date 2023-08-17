@@ -88,34 +88,23 @@ class ChizatDatasetAugmented(torch.utils.data.Dataset):
     def __len__(self):
         return self.len
 
-class NeuralNetworkASI(torch.nn.Module):
+class NeuralNetwork(torch.nn.Module):
     def __init__(self, m):
-        super(NeuralNetworkASI, self).__init__()
+        super(NeuralNetwork, self).__init__()
         self.m = m
-        
-        self.hidden_layer1 = torch.nn.Linear(N+1, m, bias=False)
-        self.output_layer1 = torch.nn.Linear(m, 1, bias=False)
-        self.hidden_layer1.weight.data.normal_(mean=0.0, std=1)
-        self.output_layer1.weight.data.normal_(mean=0.0, std=1)
+        self.hidden_layer = torch.nn.Linear(N+1, m, bias=False)
+        self.output_layer = torch.nn.Linear(m, 1, bias=False)
+        self.apply(self._init_weights)
 
-        self.hidden_layer2 = torch.nn.Linear(N+1, m, bias=False)
-        self.output_layer2 = torch.nn.Linear(m, 1, bias=False)
-        with torch.no_grad(): 
-            self.hidden_layer2.weight.copy_(self.hidden_layer1.weight)
-            self.output_layer2.weight.copy_(self.output_layer1.weight)
+    def _init_weights(self, module):
+        if isinstance(module, torch.nn.Linear):
+            module.weight.data.normal_(mean=0.0, std=1)
 
     def forward(self, input):
-        output1 = self.hidden_layer1(input)
-        output1 = torch.nn.functional.relu(output1)
-        output1 = self.output_layer1(output1)
-        output1 = output1*math.sqrt(2/self.m)
- 
-        output2 = self.hidden_layer2(input)
-        output2 = torch.nn.functional.relu(output2)
-        output2 = self.output_layer2(output2)
-        output2 = output2*math.sqrt(2/self.m)
-
-        output = (math.sqrt(2)/2)*(output1 - output2)
+        output = self.hidden_layer(input)
+        output = torch.nn.functional.relu(output)
+        output = self.output_layer(output)
+        output = output*math.sqrt(2/self.m)
 
         return output
 
@@ -123,20 +112,15 @@ class NeuralNetworkASI(torch.nn.Module):
     def train_output(self, X, Y):
         Y = torch.reshape(Y, (-1,1))
 
-        Z_1 = self.hidden_layer1(X)
-        Z_1 = torch.nn.functional.relu(Z_1)
-
-        Z_2 = self.hidden_layer2(X)
-        Z_2 = torch.nn.functional.relu(Z_2)
-
-        Z_ = torch.cat( (Z_1/math.sqrt(self.m), -Z_2/math.sqrt(self.m)), 1)
+        Z = self.hidden_layer(X)
+        Z = torch.nn.functional.relu(Z)
+        Z = Z*math.sqrt(2/self.m)
 
         # It is always preferred to use lstsq() when possible, as it is faster and more numerically stable than computing the pseudoinverse explicitly.
-        V = torch.linalg.lstsq(Z_,Y).solution.T
+        V = torch.linalg.lstsq(Z,Y).solution.T
 
         with torch.no_grad(): 
-            self.output_layer1.weight.copy_(V[0,:self.m])
-            self.output_layer2.weight.copy_(V[0,self.m:])
+            self.output_layer.weight.copy_(V)
 
 def get_loss(model, dataset):
     was_in_training=model.training
@@ -237,7 +221,7 @@ def train(model, optimizer, train_dataset, exp, n_TRAIN):
 
     # Create training curves
     fig = matplotlib.figure.Figure()
-    fig.suptitle(f'm={m}, exp={exp}')
+    fig.suptitle(f'exp={exp}, n_TRAIN={n_TRAIN}')
     gs = fig.add_gridspec(1,1)
     ax = fig.add_subplot(gs[0,0],xlabel="epoch",ylabel="train_loss")   
     ax.plot(epoch_values, train_loss_values, marker='o')
@@ -245,7 +229,7 @@ def train(model, optimizer, train_dataset, exp, n_TRAIN):
     ax.grid()
 
     script_dir = os.path.dirname(__file__)
-    fig_dir = os.path.join(script_dir, '../output/training_curves/m={0}/'.format(m))
+    fig_dir = os.path.join(script_dir, '../output/training_curves/n_TRAIN={0}/'.format(n_TRAIN))
     if not os.path.isdir(fig_dir):
         os.makedirs(fig_dir)
 
@@ -306,7 +290,7 @@ for exp in range(NUM_EXP):
         RFK_error[exp,i] = test_errors_RFK/len(test_targets_augmented)
 
         
-        nn = NeuralNetworkASI(m)
+        nn = NeuralNetwork(m)
         nn.to(DEVICE)
 
         # Set up the optimizer for the nn
@@ -318,7 +302,7 @@ for exp in range(NUM_EXP):
         nn_error[exp,i] = get_error(nn, test_dataset_augmented)
 
         # Frozen nn
-        nn_frozen = NeuralNetworkASI(m)
+        nn_frozen = NeuralNetwork(m)
         nn_frozen.to(DEVICE)
 
         nn_frozen.train_output(train_inputs_augmented, train_targets_augmented)
