@@ -15,14 +15,15 @@ import shutil
 
 # Parameters
 N = 8
+GAMMA = 0.8
 n_TRAIN = 80
 n_TEST = 200
-NUM_EXP = 10
+NUM_EXP = 8
 DEVICE_TYPE = 'cpu'
 DEVICE = torch.device(DEVICE_TYPE)
 loss_function = torch.nn.MSELoss()
 MIN_WIDTH_EXPON = 6
-MAX_WIDTH_EXPON = 13
+MAX_WIDTH_EXPON = 13 
 
 # Hyperparameters
 BATCH_SIZE = n_TRAIN
@@ -43,7 +44,7 @@ BLUE = '#2196F3'
 AMBER = '#FFA000'
 LIGHT_AMBER = '#FFCA28'
 
-class SphereDataset(torch.utils.data.Dataset):
+class SphereDatasetMod(torch.utils.data.Dataset):
     def __init__(self, distribution, n, V = None):
         self.dim = distribution.event_shape
         self.len = n
@@ -58,6 +59,9 @@ class SphereDataset(torch.utils.data.Dataset):
         line_norms = torch.linalg.norm(self.X,dim=1)
         line_norms_T = torch.reshape(line_norms,(n,1))
         self.X = self.X/line_norms_T
+
+        # Mod 
+        self.X = self.X - torch.matmul(self.X,self.V)[...,None]*self.V[None,...]*GAMMA
   
         self.Y = torch.matmul(self.X,self.V)
 
@@ -292,7 +296,7 @@ if os.path.isdir(dir_to_clean): shutil.rmtree(dir_to_clean)
 
 distribution = torch.distributions.multivariate_normal.MultivariateNormal(torch.zeros(N,device=DEVICE), torch.eye(N,device=DEVICE))
 
-test_dataset = SphereDataset(distribution, n_TEST)
+test_dataset = SphereDatasetMod(distribution, n_TEST)
 (test_inputs, test_targets) = test_dataset[:]
 
 NTK_loss = numpy.empty(NUM_EXP)
@@ -304,7 +308,7 @@ kern_diff = numpy.empty([NUM_EXP, len(m_values)])
 nn_loss_frozen = numpy.empty([NUM_EXP, len(m_values)])
 for exp in range(NUM_EXP):
     # Sample new train_dataset
-    train_dataset = SphereDataset(distribution, n_TRAIN, test_dataset.V)
+    train_dataset = SphereDatasetMod(distribution, n_TRAIN, test_dataset.V)
 
     # Train the NTK
     (train_inputs, train_targets) = train_dataset[:]
