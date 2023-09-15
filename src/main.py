@@ -3,7 +3,7 @@
 
 import numpy
 import torch
-import matplotlib.pyplot
+import matplotlib.figure
 import time
 import os
 import sklearn.svm
@@ -14,35 +14,24 @@ import math
 import shutil
 
 # Parameters
-N = 8
+Ns = [8, 16, 32]
 GAMMA = 0.8
-n_TRAIN = 80
-n_TEST = 200
+ns_TRAIN = [80, 160, 320]
+n_TEST = 1000
 NUM_EXP = 8
 DEVICE_TYPE = 'cpu'
 DEVICE = torch.device(DEVICE_TYPE)
 loss_function = torch.nn.MSELoss()
 MIN_WIDTH_EXPON = 6
-MAX_WIDTH_EXPON = 13 
+MAX_WIDTH_EXPON = 12 
 
 # Hyperparameters
-BATCH_SIZE = n_TRAIN
 LR = 2
 MOMENTUM = 0.00
 
 # Stopping criteria 
 ALPHA = 4
-BETA = -0.2
-
-# Colors
-GREEN = '#388E3C'
-LIGHT_GREEN = '#8BC34A'
-BROWN = '#6D4C41'
-LIGHT_BROWN = '#8D6E63'
-INDIGO = '#3F51B5'
-BLUE = '#2196F3'
-AMBER = '#FFA000'
-LIGHT_AMBER = '#FFCA28'
+BETA = -0.25
 
 class SphereDatasetMod(torch.utils.data.Dataset):
     def __init__(self, distribution, n, V = None):
@@ -125,25 +114,6 @@ class NeuralNetworkASI(torch.nn.Module):
 
         return output
 
-    # Exact solution
-    def train_output(self, X, Y):
-        Y = torch.reshape(Y, (-1,1))
-
-        Z_1 = self.hidden_layer1(X)
-        Z_1 = torch.nn.functional.relu(Z_1)
-
-        Z_2 = self.hidden_layer2(X)
-        Z_2 = torch.nn.functional.relu(Z_2)
-
-        Z_ = torch.cat( (Z_1/math.sqrt(self.m), -Z_2/math.sqrt(self.m)), 1)
-
-        # It is always preferred to use lstsq() when possible, as it is faster and more numerically stable than computing the pseudoinverse explicitly.
-        V = torch.linalg.lstsq(Z_,Y).solution.T
-
-        with torch.no_grad(): 
-            self.output_layer1.weight.copy_(V[0,:self.m])
-            self.output_layer2.weight.copy_(V[0,self.m:])
-
 def get_loss(model, dataset):
     was_in_training=model.training
     model.train(False)
@@ -177,19 +147,6 @@ def K(a,b):
     elif(u>1): u=1
 
     return normprod*k(u)
-
-def K_RF(a,b):
-    norma = numpy.linalg.norm(a, 2)
-    normb = numpy.linalg.norm(b, 2)
-    normprod = norma*normb
-    inprod = numpy.dot(a,b)
-    u = inprod/normprod
-
-    # Fix values outside of [-1,1] due to computation inaccuracies
-    if(u<-1): u=-1
-    elif(u>1): u=1
-
-    return (normprod/2)*k1(u)
 
 def phi(model, input):
     # Forward
@@ -233,11 +190,11 @@ def has_converged(a):
 
     return False
 
-def train(model, optimizer, train_dataset, m, exp, is_frozen):
+def train(model, optimizer, train_dataset, N, n_TRAIN, m, exp):
     was_in_training = model.training
     model.train(True)
 
-    train_loader = torch.utils.data.DataLoader(dataset=train_dataset, batch_size=BATCH_SIZE, shuffle=True)
+    train_loader = torch.utils.data.DataLoader(dataset=train_dataset, batch_size=n_TRAIN, shuffle=True)
     (train_inputs, train_targets) = train_dataset[:]
 
     epoch_values = [] # We do not know when the training will finish
@@ -250,7 +207,7 @@ def train(model, optimizer, train_dataset, m, exp, is_frozen):
         train_loss_values.append(get_loss(model, train_dataset))
 
         if (epoch+1)%ALPHA==0:
-            print(f'm={m}, exp={exp}, is_frozen={is_frozen}, epoch={epoch}, train_loss={train_loss_values[-1]}, ',end="")
+            print(f'N={N}, n_TRAIN={n_TRAIN}, m={m}, exp={exp}, epoch={epoch}, train_loss={train_loss_values[-1]}, ',end="")
             if has_converged(train_loss_values):
                 break
 
@@ -270,22 +227,20 @@ def train(model, optimizer, train_dataset, m, exp, is_frozen):
         epoch += 1
 
     # Create training curves
-    fig, axs = matplotlib.pyplot.subplots(figsize=[10, 10], dpi=100, tight_layout=True)
-    fig.suptitle(f'm={m}, exp={exp}, is_frozen={is_frozen}')
-
-    axs.plot(epoch_values, train_loss_values, linestyle='-', marker='o', color=BLUE)
-    axs.set_xlabel('epoch')
-    axs.set_ylabel('train_loss')
-    axs.grid()
-    axs.set_yscale('log')
+    figure = matplotlib.figure.Figure()
+    figure.suptitle(f'exp={exp}, n_TRAIN={n_TRAIN}')
+    grid_spec = figure.add_gridspec(1,1)
+    axes = figure.add_subplot(grid_spec[0,0],xlabel="epoch",ylabel="train_loss")   
+    axes.plot(epoch_values, train_loss_values, marker='o')
+    axes.set_yscale('log')
+    axes.grid()
 
     script_dir = os.path.dirname(__file__)
-    fig_dir = os.path.join(script_dir, '../output/training_curves/m={0}/'.format(m))
+    fig_dir = os.path.join(script_dir, "../output/training_curves/N=%d/n_TRAIN=%d/m=%d/" % (N, n_TRAIN, m))
     if not os.path.isdir(fig_dir):
         os.makedirs(fig_dir)
 
-    fig.savefig(fig_dir + f'exp={exp},is_frozen={is_frozen}.pdf')
-    matplotlib.pyplot.close(fig)
+    figure.savefig(fig_dir + f'exp={exp}.pdf')
 
     model.train(was_in_training)
 
@@ -294,105 +249,65 @@ script_dir = os.path.dirname(__file__)
 dir_to_clean = os.path.join(script_dir, '../output/')
 if os.path.isdir(dir_to_clean): shutil.rmtree(dir_to_clean)
 
-distribution = torch.distributions.multivariate_normal.MultivariateNormal(torch.zeros(N,device=DEVICE), torch.eye(N,device=DEVICE))
+figure = matplotlib.figure.Figure()
+grid_spec = figure.add_gridspec(nrows=len(Ns), ncols=len(ns_TRAIN))
 
-test_dataset = SphereDatasetMod(distribution, n_TEST)
-(test_inputs, test_targets) = test_dataset[:]
+for row,N in enumerate(Ns):
+    for col,n_TRAIN in enumerate(ns_TRAIN):
 
-NTK_loss = numpy.empty(NUM_EXP)
-RFK_loss = numpy.empty(NUM_EXP)
-m_exponents = range(MIN_WIDTH_EXPON, MAX_WIDTH_EXPON+1)
-m_values = [2**exp for exp in m_exponents]
-nn_loss = numpy.empty([NUM_EXP, len(m_values)])
-kern_diff = numpy.empty([NUM_EXP, len(m_values)])
-nn_loss_frozen = numpy.empty([NUM_EXP, len(m_values)])
-for exp in range(NUM_EXP):
-    # Sample new train_dataset
-    train_dataset = SphereDatasetMod(distribution, n_TRAIN, test_dataset.V)
+        distribution = torch.distributions.multivariate_normal.MultivariateNormal(torch.zeros(N,device=DEVICE), torch.eye(N,device=DEVICE))
 
-    # Train the NTK
-    (train_inputs, train_targets) = train_dataset[:]
+        test_dataset = SphereDatasetMod(distribution, n_TEST)
+        (test_inputs, test_targets) = test_dataset[:]
 
-    NTK = sklearn.kernel_ridge.KernelRidge(alpha=1e-10, kernel=K)
-    print(f'Training NTK, exp={exp}')
-    NTK.fit(train_inputs.cpu().numpy(), train_targets.cpu().numpy()) # .numpy() only takes tensor in CPU
-    print(f'Infering NTK, exp={exp}')
-    test_outputs_NTK = NTK.predict(test_inputs.cpu().numpy()) # .numpy() only takes tensor in CPU
-    NTK_loss[exp] = sklearn.metrics.mean_squared_error(test_targets.cpu().numpy(), test_outputs_NTK) # .numpy() only takes tensor in CPU
+        NTK_loss = numpy.empty(NUM_EXP)
+        m_exponents = range(MIN_WIDTH_EXPON, MAX_WIDTH_EXPON+1)
+        ms = [2**exp for exp in m_exponents]
+        nn_loss = numpy.empty([NUM_EXP, len(ms)])
+        for exp in range(NUM_EXP):
+            # Sample new train_dataset
+            train_dataset = SphereDatasetMod(distribution, n_TRAIN, test_dataset.V)
 
-    # Train the RFK
-    RFK = sklearn.kernel_ridge.KernelRidge(alpha=1e-10, kernel=K_RF)
-    print(f'Training RFK, exp={exp}')
-    RFK.fit(train_inputs.cpu().numpy(), train_targets.cpu().numpy()) # .numpy() only takes tensor in CPU
-    print(f'Infering RFK, exp={exp}')
-    test_outputs_RFK = RFK.predict(test_inputs.cpu().numpy()) # .numpy() only takes tensor in CPU
-    RFK_loss[exp] = sklearn.metrics.mean_squared_error(test_targets.cpu().numpy(), test_outputs_RFK) # .numpy() only takes tensor in CPU
+            # Train the NTK
+            (train_inputs, train_targets) = train_dataset[:]
 
-    # Train the nns
-    for m_index, m in enumerate(m_values):
-        nn = NeuralNetworkASI(m)
-        nn.to(DEVICE)
+            NTK = sklearn.kernel_ridge.KernelRidge(alpha=1e-10, kernel=K)
+            print(f'Training NTK, exp={exp}')
+            NTK.fit(train_inputs.cpu().numpy(), train_targets.cpu().numpy()) # .numpy() only takes tensor in CPU
+            print(f'Infering NTK, exp={exp}')
+            test_outputs_NTK = NTK.predict(test_inputs.cpu().numpy()) # .numpy() only takes tensor in CPU
+            NTK_loss[exp] = sklearn.metrics.mean_squared_error(test_targets.cpu().numpy(), test_outputs_NTK) # .numpy() only takes tensor in CPU
 
-        # Set up the optimizer for the nn
-        optimizer = torch.optim.SGD(nn.parameters(), lr=LR, momentum=MOMENTUM)
+            # Train the nns
+            for m_index, m in enumerate(ms):
+                nn = NeuralNetworkASI(m)
+                nn.to(DEVICE)
 
-        Kw0_matrix = Kw_matrix(train_inputs, nn)
-        
-        # Train the nn
-        train(nn, optimizer, train_dataset, m, exp, False)
+                # Set up the optimizer for the nn
+                optimizer = torch.optim.SGD(nn.parameters(), lr=LR, momentum=MOMENTUM)
+                
+                # Train the nn
+                train(nn, optimizer, train_dataset, N, n_TRAIN, m, exp)
 
-        nn_loss[exp,m_index] = get_loss(nn, test_dataset)
+                nn_loss[exp,m_index] = get_loss(nn, test_dataset)
 
-        Kwconv_matrix = Kw_matrix(train_inputs,nn)
-        kern_diff[exp,m_index] = torch.linalg.matrix_norm(Kwconv_matrix-Kw0_matrix, ord=2)
+        # l2_loss plot
+        NTK_loss_mean = numpy.mean(NTK_loss)
+        NTK_loss_std = numpy.std(NTK_loss)
+        nn_loss_mean = numpy.mean(nn_loss, axis=0)
+        nn_loss_std = numpy.std(nn_loss, axis=0)
 
-        # Frozen nn
-        nn_frozen = NeuralNetworkASI(m)
-        nn_frozen.to(DEVICE)
+        axes = figure.add_subplot(grid_spec[row,col],title="N=%d, n_TRAIN=%d" % (N, n_TRAIN), xlabel="m", ylabel="l2_loss")
+        axes.grid()
+        axes.set_xscale('log', base=2)
 
-        nn_frozen.train_output(train_inputs, train_targets)
+        axes.plot(ms, torch.full((len(ms),),NTK_loss_mean), marker="o", label="NTK")
+        axes.fill_between(ms, torch.full((len(ms),),NTK_loss_mean-NTK_loss_std), torch.full((len(ms),),NTK_loss_mean+NTK_loss_std), alpha=3/8)
+        axes.plot(ms, nn_loss_mean, marker="o", label="NN")
+        axes.fill_between(ms, nn_loss_mean-nn_loss_std, nn_loss_mean+nn_loss_std, alpha=3/8)
+        axes.legend(prop={"size": 8})
 
-        nn_loss_frozen[exp,m_index] = get_loss(nn_frozen, test_dataset)
-
-# l2_loss plot
-NTK_loss_mean = numpy.mean(NTK_loss)
-NTK_loss_std = numpy.std(NTK_loss)
-RFK_loss_mean = numpy.mean(RFK_loss)
-RFK_loss_std = numpy.std(RFK_loss)
-nn_loss_mean = numpy.mean(nn_loss, axis=0)
-nn_loss_std = numpy.std(nn_loss, axis=0)
-nn_loss_frozen_mean = numpy.mean(nn_loss_frozen, axis=0)
-nn_loss_frozen_std = numpy.std(nn_loss_frozen, axis=0)
-
-fig, axs = matplotlib.pyplot.subplots(figsize=[10, 10], dpi=100, tight_layout=True)
-axs.set_xlabel('m')
-axs.set_ylabel('l2_loss')
-axs.grid()
-axs.set_xscale('log', base=2)
-
-axs.errorbar(m_values, NTK_loss_mean*numpy.ones(len(m_values)), NTK_loss_std*numpy.ones(len(m_values)), linestyle='-', marker='o', color=GREEN, ecolor=LIGHT_GREEN, capsize=7)
-axs.errorbar(m_values, RFK_loss_mean*numpy.ones(len(m_values)), RFK_loss_std*numpy.ones(len(m_values)), linestyle='-', marker='o', color=BROWN, ecolor=LIGHT_BROWN, capsize=7)
-axs.errorbar(m_values, nn_loss_mean, nn_loss_std, linestyle='-', marker='o', color=INDIGO, ecolor=BLUE, capsize=7)
-axs.errorbar(m_values, nn_loss_frozen_mean, nn_loss_frozen_std, linestyle='-', marker='o', color=AMBER, ecolor=LIGHT_AMBER, capsize=7)
-
-script_dir = os.path.dirname(__file__)
-fig.savefig(script_dir+'/../output/l2_loss.pdf')
-matplotlib.pyplot.close(fig)
-
-# kern_diff plot
-kern_diff_mean = numpy.mean(kern_diff, axis=1)
-kern_diff_std = numpy.std(kern_diff, axis=1)
-
-fig, axs = matplotlib.pyplot.subplots(figsize=[10, 10], dpi=100, tight_layout=True)
-axs.set_xlabel('m')
-axs.set_ylabel('kern_diff')
-axs.grid()
-axs.set_xscale('log', base=2)
-
-axs.errorbar(m_values, kern_diff_mean*numpy.ones(len(m_values)), kern_diff_std*numpy.ones(len(m_values)), linestyle='-', marker='o', color=INDIGO, ecolor=BLUE, capsize=7)
-
-script_dir = os.path.dirname(__file__)
-fig.savefig(script_dir+'/../output/kern_diff.pdf')
-matplotlib.pyplot.close(fig)
+        script_dir = os.path.dirname(__file__)
+        figure.savefig(script_dir+'/../output/l2_loss.pdf')
 
 print('🧪')
