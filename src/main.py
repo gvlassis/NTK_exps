@@ -49,6 +49,9 @@ class SphereDatasetMod(torch.utils.data.Dataset):
         line_norms_T = torch.reshape(line_norms,(n,1))
         self.X = self.X/line_norms_T
 
+        # Scaling wrt the input dimension
+        self.X = self.X * math.sqrt(self.dim)
+
         # Mod 
         self.X = self.X - torch.matmul(self.X,self.V)[...,None]*self.V[None,...]*GAMMA
   
