@@ -26,8 +26,8 @@ MIN_WIDTH_EXPON = 6
 MAX_WIDTH_EXPON = 12 
 
 # Hyperparameters
-LR = 2
-MOMENTUM = 0.00
+LR = 0.1
+MOMENTUM = 0.98
 
 # Stopping criteria 
 ALPHA = 4
@@ -50,7 +50,7 @@ class SphereDatasetMod(torch.utils.data.Dataset):
         self.X = self.X/line_norms_T
 
         # Scaling wrt the input dimension
-        self.X = self.X * math.sqrt(self.dim)
+        self.X = self.X * math.sqrt(self.dim[0])
 
         # Mod 
         self.X = self.X - torch.matmul(self.X,self.V)[...,None]*self.V[None,...]*GAMMA
