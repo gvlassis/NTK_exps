@@ -14,19 +14,19 @@ import math
 import shutil
 
 # Parameters
-Ns = [10, 20]
-ns_TRAIN = [80, 160]
-ms = [2**6, 2**10]
+Ns = [10, 30, 50, 70, 90, 110, 130]
+ns_TRAIN = [80, 160, 320, 640]
+ms = [2**6, 2**10, 2**12]
 GAMMA = 0.8
 n_TEST = 1000
-NUM_EXP = 2
+NUM_EXP = 8
 DEVICE_TYPE = 'cpu'
 DEVICE = torch.device(DEVICE_TYPE)
 loss_function = torch.nn.MSELoss()
 
 # Hyperparameters
-LR = 2
-MOMENTUM = 0.00
+LR = 0.01
+MOMENTUM = 0.98
 
 # Stopping criteria 
 ALPHA = 4
