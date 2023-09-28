@@ -26,7 +26,7 @@ MIN_WIDTH_EXPON = 6
 MAX_WIDTH_EXPON = 12 
 
 # Hyperparameters
-LR = 0.1
+LR = 0.01
 MOMENTUM = 0.98
 
 # Stopping criteria 
