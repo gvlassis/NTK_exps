@@ -53,12 +53,9 @@ class SphereDatasetMod(torch.utils.data.Dataset):
         self.X = self.X * math.sqrt(self.dim[0])
 
         # Mod 
-        self.X = self.X - torch.matmul(self.X,self.V)[...,None]*self.V[None,...]*GAMMA
+        X = self.X - torch.matmul(self.X,self.V)[...,None]*self.V[None,...]*GAMMA
   
-        self.Y = torch.matmul(self.X,self.V)
-
-        self.Y = self.Y >= 0 
-        self.Y = self.Y.float()
+        self.Y = torch.matmul(self.X,self.V)**2
 
     def __getitem__(self, i):
         return self.X[i], self.Y[i]
