@@ -15,15 +15,14 @@ import shutil
 
 # Parameters
 Ns = [8, 16, 32]
+ns_TRAIN = [80, 160, 320, 640, 1280, 2560, 5120]
+ms = [2**6, 2**10, 2**12]
 GAMMA = 0.8
-ns_TRAIN = [80, 160, 320]
 n_TEST = 1000
 NUM_EXP = 8
 DEVICE_TYPE = 'cpu'
 DEVICE = torch.device(DEVICE_TYPE)
 loss_function = torch.nn.MSELoss()
-MIN_WIDTH_EXPON = 6
-MAX_WIDTH_EXPON = 12 
 
 # Hyperparameters
 LR = 0.01
@@ -228,7 +227,6 @@ def train(model, optimizer, train_dataset, N, n_TRAIN, m, exp):
 
     # Create training curves
     figure = matplotlib.figure.Figure()
-    figure.suptitle(f'exp={exp}, n_TRAIN={n_TRAIN}')
     grid_spec = figure.add_gridspec(1,1)
     axes = figure.add_subplot(grid_spec[0,0],xlabel="epoch",ylabel="train_loss")   
     axes.plot(epoch_values, train_loss_values, marker='o')
@@ -236,7 +234,7 @@ def train(model, optimizer, train_dataset, N, n_TRAIN, m, exp):
     axes.grid()
 
     script_dir = os.path.dirname(__file__)
-    fig_dir = os.path.join(script_dir, "../output/training_curves/N=%d/n_TRAIN=%d/m=%d/" % (N, n_TRAIN, m))
+    fig_dir = os.path.join(script_dir, "../output/training_curves/N=%d/m=%d/n_TRAIN=%d/" % (N, m, n_TRAIN))
     if not os.path.isdir(fig_dir):
         os.makedirs(fig_dir)
 
@@ -250,36 +248,34 @@ dir_to_clean = os.path.join(script_dir, '../output/')
 if os.path.isdir(dir_to_clean): shutil.rmtree(dir_to_clean)
 
 figure = matplotlib.figure.Figure()
-grid_spec = figure.add_gridspec(nrows=len(Ns), ncols=len(ns_TRAIN))
+grid_spec = figure.add_gridspec(nrows=len(Ns), ncols=len(ms))
 
-for row,N in enumerate(Ns):
-    for col,n_TRAIN in enumerate(ns_TRAIN):
+for row, N in enumerate(Ns):
+    for col, m in enumerate(ms):
+        NTK_loss = numpy.empty([NUM_EXP, len(ns_TRAIN)])
+        nn_loss = numpy.empty([NUM_EXP, len(ns_TRAIN)])
 
-        distribution = torch.distributions.multivariate_normal.MultivariateNormal(torch.zeros(N,device=DEVICE), torch.eye(N,device=DEVICE))
-
-        test_dataset = SphereDatasetMod(distribution, n_TEST)
-        (test_inputs, test_targets) = test_dataset[:]
-
-        NTK_loss = numpy.empty(NUM_EXP)
-        m_exponents = range(MIN_WIDTH_EXPON, MAX_WIDTH_EXPON+1)
-        ms = [2**exp for exp in m_exponents]
-        nn_loss = numpy.empty([NUM_EXP, len(ms)])
         for exp in range(NUM_EXP):
-            # Sample new train_dataset
-            train_dataset = SphereDatasetMod(distribution, n_TRAIN, test_dataset.V)
+            for n_TRAIN_index, n_TRAIN in enumerate(ns_TRAIN):
 
-            # Train the NTK
-            (train_inputs, train_targets) = train_dataset[:]
+                distribution = torch.distributions.multivariate_normal.MultivariateNormal(torch.zeros(N,device=DEVICE), torch.eye(N,device=DEVICE))
 
-            NTK = sklearn.kernel_ridge.KernelRidge(alpha=1e-10, kernel=K)
-            print(f'Training NTK, exp={exp}')
-            NTK.fit(train_inputs.cpu().numpy(), train_targets.cpu().numpy()) # .numpy() only takes tensor in CPU
-            print(f'Infering NTK, exp={exp}')
-            test_outputs_NTK = NTK.predict(test_inputs.cpu().numpy()) # .numpy() only takes tensor in CPU
-            NTK_loss[exp] = sklearn.metrics.mean_squared_error(test_targets.cpu().numpy(), test_outputs_NTK) # .numpy() only takes tensor in CPU
+                test_dataset = SphereDatasetMod(distribution, n_TEST)
+                (test_inputs, test_targets) = test_dataset[:]
 
-            # Train the nns
-            for m_index, m in enumerate(ms):
+                # Sample new train_dataset
+                train_dataset = SphereDatasetMod(distribution, n_TRAIN, test_dataset.V)
+
+                # Train the NTK
+                (train_inputs, train_targets) = train_dataset[:]
+
+                NTK = sklearn.kernel_ridge.KernelRidge(alpha=1e-10, kernel=K)
+                print(f'Training NTK, N={N}, m={m}, exp={exp}, n_TRAIN={n_TRAIN}')
+                NTK.fit(train_inputs.cpu().numpy(), train_targets.cpu().numpy()) # .numpy() only takes tensor in CPU
+                print(f'Infering NTK, N={N}, m={m}, exp={exp}, n_TRAIN={n_TRAIN}')
+                test_outputs_NTK = NTK.predict(test_inputs.cpu().numpy()) # .numpy() only takes tensor in CPU
+                NTK_loss[exp,n_TRAIN_index] = sklearn.metrics.mean_squared_error(test_targets.cpu().numpy(), test_outputs_NTK) # .numpy() only takes tensor in CPU
+
                 nn = NeuralNetworkASI(m)
                 nn.to(DEVICE)
 
@@ -289,22 +285,21 @@ for row,N in enumerate(Ns):
                 # Train the nn
                 train(nn, optimizer, train_dataset, N, n_TRAIN, m, exp)
 
-                nn_loss[exp,m_index] = get_loss(nn, test_dataset)
+                nn_loss[exp,n_TRAIN_index] = get_loss(nn, test_dataset)
 
         # l2_loss plot
-        NTK_loss_mean = numpy.mean(NTK_loss)
-        NTK_loss_std = numpy.std(NTK_loss)
+        NTK_loss_mean = numpy.mean(NTK_loss, axis=0)
+        NTK_loss_std = numpy.std(NTK_loss, axis=0)
         nn_loss_mean = numpy.mean(nn_loss, axis=0)
         nn_loss_std = numpy.std(nn_loss, axis=0)
 
-        axes = figure.add_subplot(grid_spec[row,col],title="N=%d, n_TRAIN=%d" % (N, n_TRAIN), xlabel="m", ylabel="l2_loss")
+        axes = figure.add_subplot(grid_spec[row,col],title="N=%d, m=%d" % (N, m), xlabel="n_TRAIN", ylabel="l2_loss")
         axes.grid()
-        axes.set_xscale('log', base=2)
 
-        axes.plot(ms, torch.full((len(ms),),NTK_loss_mean), marker="o", label="NTK")
-        axes.fill_between(ms, torch.full((len(ms),),NTK_loss_mean-NTK_loss_std), torch.full((len(ms),),NTK_loss_mean+NTK_loss_std), alpha=3/8)
-        axes.plot(ms, nn_loss_mean, marker="o", label="NN")
-        axes.fill_between(ms, nn_loss_mean-nn_loss_std, nn_loss_mean+nn_loss_std, alpha=3/8)
+        axes.plot(ns_TRAIN, NTK_loss_mean, marker="o", label="NTK")
+        axes.fill_between(ns_TRAIN, NTK_loss_mean-NTK_loss_std, NTK_loss_mean+NTK_loss_std, alpha=3/8)
+        axes.plot(ns_TRAIN, nn_loss_mean, marker="o", label="NN")
+        axes.fill_between(ns_TRAIN, nn_loss_mean-nn_loss_std, nn_loss_mean+nn_loss_std, alpha=3/8)
         axes.legend(prop={"size": 8})
 
         script_dir = os.path.dirname(__file__)
